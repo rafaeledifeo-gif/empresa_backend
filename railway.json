@@ -7,7 +7,7 @@
           "version": "3.11"
         }
       },
-      "start": "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+      "startCommand": "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
     }
   }
 }
