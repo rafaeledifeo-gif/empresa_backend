@@ -15,10 +15,10 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 
 engine = create_engine(
     DATABASE_URL,
-    pool_pre_ping=True,      # 🔥 Repara conexiones muertas automáticamente
-    pool_recycle=180,        # 🔥 Recicla conexiones cada 3 minutos
-    pool_size=5,             # 🔥 Tamaño ideal para plan gratuito
-    max_overflow=0,          # 🔥 Evita saturar la base de datos
+    pool_pre_ping=True,
+    pool_recycle=180,
+    pool_size=5,
+    max_overflow=0,
 )
 
 # ============================================================
@@ -32,3 +32,14 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 # ============================================================
 
 Base = declarative_base()
+
+# ============================================================
+# ⭐ FUNCIÓN get_db (NECESARIA PARA TODOS LOS ROUTERS)
+# ============================================================
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
