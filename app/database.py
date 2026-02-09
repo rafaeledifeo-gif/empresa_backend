@@ -1,23 +1,34 @@
-import os
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+import os
 
-# Render ya tiene DATABASE_URL en el entorno
-DATABASE_URL = os.environ["DATABASE_URL"]
+# ============================================================
+# DATABASE URL (Render)
+# ============================================================
 
-engine = create_engine(DATABASE_URL)
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-SessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=engine
+# ============================================================
+# ENGINE CONFIGURADO PARA RENDER FREE
+# ============================================================
+
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,      # 🔥 Repara conexiones muertas automáticamente
+    pool_recycle=180,        # 🔥 Recicla conexiones cada 3 minutos
+    pool_size=5,             # 🔥 Tamaño ideal para plan gratuito
+    max_overflow=0,          # 🔥 Evita saturar la base de datos
 )
 
-Base = declarative_base()
+# ============================================================
+# SESSION
+# ============================================================
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# ============================================================
+# BASE
+# ============================================================
+
+Base = declarative_base()

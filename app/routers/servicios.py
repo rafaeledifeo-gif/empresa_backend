@@ -34,6 +34,14 @@ def get_servicios(
     return query.all()
 
 # ============================================================
+# GET: LISTAR SERVICIOS POR SEDE (RUTA QUE USA LA APP MÓVIL)
+# ============================================================
+
+@router.get("/sede/{sede_id}", response_model=list[schemas.ServicioOut])
+def get_servicios_por_sede(sede_id: str, db: Session = Depends(get_db)):
+    return db.query(models.Servicio).filter(models.Servicio.sede_id == sede_id).all()
+
+# ============================================================
 # POST: CREAR SERVICIO
 # ============================================================
 
@@ -58,9 +66,9 @@ def crear_servicio(servicio: schemas.ServicioCreate, db: Session = Depends(get_d
         identificador_letra=servicio.identificador_letra,
         rango_inicio=servicio.rango_inicio,
         rango_fin=servicio.rango_fin,
-        contador_actual=servicio.rango_inicio,  # inicia en rango_inicio
+        contador_actual=servicio.rango_inicio,
         ultima_generacion=datetime.now(),
-        activo=True  # ✅ IMPORTANTE: ahora se guarda correctamente
+        activo=True
     )
 
     db.add(nuevo)
