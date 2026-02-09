@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Body
 from sqlalchemy.orm import Session
 from datetime import datetime
 from ..database import SessionLocal
@@ -32,7 +32,6 @@ def crear_ticket(data: schemas.TicketCreate, db: Session = Depends(get_db)):
 
     hoy = datetime.now().date()
 
-    # Convertir ultima_generacion a date de forma segura
     ultima_fecha = None
     if servicio.ultima_generacion is not None:
         if isinstance(servicio.ultima_generacion, datetime):
@@ -40,15 +39,12 @@ def crear_ticket(data: schemas.TicketCreate, db: Session = Depends(get_db)):
         elif isinstance(servicio.ultima_generacion, str):
             ultima_fecha = datetime.fromisoformat(servicio.ultima_generacion).date()
 
-    # Reinicio diario
     if ultima_fecha is None or ultima_fecha != hoy:
         servicio.contador_actual = servicio.rango_inicio
         servicio.ultima_generacion = hoy.isoformat()
 
-    # Generar código
     codigo = f"{servicio.identificador_letra}-{servicio.contador_actual}"
 
-    # Crear ticket
     ticket = models.Ticket(
         id=str(uuid.uuid4()),
         codigo=codigo,
@@ -58,7 +54,6 @@ def crear_ticket(data: schemas.TicketCreate, db: Session = Depends(get_db)):
         sede_id=data.sede_id,
     )
 
-    # Incrementar contador y reiniciar si supera rango_fin
     servicio.contador_actual += 1
     if servicio.contador_actual > servicio.rango_fin:
         servicio.contador_actual = servicio.rango_inicio
@@ -67,7 +62,6 @@ def crear_ticket(data: schemas.TicketCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(ticket)
 
-    # Incluir servicio_nombre
     data_out = ticket.__dict__.copy()
     data_out["servicio_nombre"] = servicio.nombre
 
@@ -122,17 +116,25 @@ def get_tickets_estado(sede_id: str, estado: str, db: Session = Depends(get_db))
 
 
 # ============================================================
-# LLAMAR TICKET
+# LLAMAR TICKET (puesto obligatorio)
 # ============================================================
 @router.put("/llamar/{ticket_id}", response_model=schemas.TicketOut)
-def llamar_ticket(ticket_id: str, db: Session = Depends(get_db)):
+def llamar_ticket(
+    ticket_id: str,
+    puesto_nombre: str = Body(..., embed=True),
+    db: Session = Depends(get_db)
+):
     ticket = db.query(models.Ticket).filter(models.Ticket.id == ticket_id).first()
 
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket no encontrado")
 
+    if not puesto_nombre:
+        raise HTTPException(status_code=400, detail="Debe especificar un puesto")
+
     ticket.estado = "llamado"
     ticket.hora_llamado = datetime.now()
+    ticket.puesto_nombre = puesto_nombre  # ⭐ SE GUARDA EL PUESTO
 
     db.commit()
     db.refresh(ticket)
@@ -211,14 +213,9 @@ async def ticket_ws(websocket: WebSocket, ticket_id: str):
             data = ticket_obj.__dict__.copy()
             data["servicio_nombre"] = servicio_nombre
 
-            # opcional: si tienes puesto_id y locaciones
-            if hasattr(ticket_obj, "puesto_id") and ticket_obj.puesto_id:
-                loc = db.query(models.Locacion).filter(models.Locacion.id == ticket_obj.puesto_id).first()
-                data["puesto_nombre"] = loc.nombre if loc else "No asignado"
-            else:
-                data["puesto_nombre"] = "No asignado"
+            # ⭐ Ahora sí envía el puesto real
+            data["puesto_nombre"] = ticket_obj.puesto_nombre or "No asignado"
 
-            # solo enviar si cambió
             if data != last_payload:
                 await websocket.send_json(data)
                 last_payload = data

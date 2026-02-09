@@ -171,6 +171,8 @@ class Ticket(Base):
 
     sede_id = Column(String, ForeignKey("sedes.id"), nullable=False)
     sede = relationship("Sede")
+
+    puesto_nombre = Column(String, nullable=True)
 # ============================================================
 # CLIENTE (para app móvil)
 # ============================================================
