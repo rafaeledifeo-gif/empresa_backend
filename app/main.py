@@ -20,22 +20,28 @@ app = FastAPI(debug=True)
 def on_startup():
     init_db()
 
+# 🔍 RUTA DE DEPURACIÓN PARA VER LAS COLUMNAS REALES QUE VE EL BACKEND
+@app.get("/debug-columns")
+def debug_columns():
+    from sqlalchemy import text
+    q = text("SELECT column_name FROM information_schema.columns WHERE table_name = 'tickets'")
+    r = app.database.db.session.execute(q).fetchall()
+    return {"columns": [c[0] for c in r]}
+
 # ⭐ CORS CORREGIDO PARA FLUTTER WEB
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],          # permite cualquier origen
-    allow_origin_regex=".*",      # permite puertos dinámicos (Flutter Web)
+    allow_origins=["*"],
+    allow_origin_regex=".*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ⭐ RUTA OPTIONS PARA PREFLIGHT (NECESARIA EN NAVEGADOR)
 @app.options("/{rest_of_path:path}")
 async def preflight_handler(rest_of_path: str, request: Request):
     return {}
 
-# Routers
 app.include_router(empresas.router)
 app.include_router(sedes.router)
 app.include_router(servicios.router)
@@ -45,7 +51,6 @@ app.include_router(usuarios.router)
 app.include_router(tickets.router)
 app.include_router(clientes.router)
 
-# Ruta raíz
 @app.get("/")
 def root():
     return {"status": "ok", "message": "Backend Qeuego activo"}
