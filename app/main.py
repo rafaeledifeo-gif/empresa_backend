@@ -14,6 +14,9 @@ from .routers import (
     clientes,
 )
 
+from app.database import db
+from sqlalchemy import text
+
 app = FastAPI(debug=True)
 
 @app.on_event("startup")
@@ -23,9 +26,8 @@ def on_startup():
 # 🔍 RUTA DE DEPURACIÓN PARA VER LAS COLUMNAS REALES QUE VE EL BACKEND
 @app.get("/debug-columns")
 def debug_columns():
-    from sqlalchemy import text
     q = text("SELECT column_name FROM information_schema.columns WHERE table_name = 'tickets'")
-    r = app.database.db.session.execute(q).fetchall()
+    r = db.session.execute(q).fetchall()
     return {"columns": [c[0] for c in r]}
 
 # ⭐ CORS CORREGIDO PARA FLUTTER WEB
