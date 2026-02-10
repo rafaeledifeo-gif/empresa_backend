@@ -14,7 +14,7 @@ from .routers import (
     clientes,
 )
 
-from app.database import db
+from app.database import SessionLocal
 from sqlalchemy import text
 
 app = FastAPI(debug=True)
@@ -25,9 +25,13 @@ def on_startup():
 
 @app.get("/debug-columns")
 def debug_columns():
-    q = text("SELECT column_name FROM information_schema.columns WHERE table_name = 'tickets'")
-    r = db.session.execute(q).fetchall()
-    return {"columns": [c[0] for c in r]}
+    db = SessionLocal()
+    try:
+        q = text("SELECT column_name FROM information_schema.columns WHERE table_name = 'tickets'")
+        r = db.execute(q).fetchall()
+        return {"columns": [c[0] for c in r]}
+    finally:
+        db.close()
 
 app.add_middleware(
     CORSMiddleware,
