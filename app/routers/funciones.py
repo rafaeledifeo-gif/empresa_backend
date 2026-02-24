@@ -14,25 +14,41 @@ def get_db():
 
 
 # ============================================================
-# GET: LISTAR FUNCIONES
+# GET: LISTAR TODAS LAS FUNCIONES
 # ============================================================
 
 @router.get("/", response_model=list[schemas.FuncionOut])
 def get_funciones(db: Session = Depends(get_db)):
     funciones = db.query(models.Funcion).all()
-
-    resultado = []
-    for f in funciones:
-        resultado.append(
-            schemas.FuncionOut(
-                id=f.id,
-                nombre=f.nombre,
-                descripcion=f.descripcion,
-                sede_id=f.sede_id,
-                servicios=[s.id for s in f.servicios]
-            )
+    return [
+        schemas.FuncionOut(
+            id=f.id,
+            nombre=f.nombre,
+            descripcion=f.descripcion,
+            sede_id=f.sede_id,
+            servicios=[s.id for s in f.servicios]
         )
-    return resultado
+        for f in funciones
+    ]
+
+
+# ============================================================
+# GET: FUNCIONES POR SEDE
+# ============================================================
+
+@router.get("/sede/{sede_id}", response_model=list[schemas.FuncionOut])
+def get_funciones_por_sede(sede_id: str, db: Session = Depends(get_db)):
+    funciones = db.query(models.Funcion).filter(models.Funcion.sede_id == sede_id).all()
+    return [
+        schemas.FuncionOut(
+            id=f.id,
+            nombre=f.nombre,
+            descripcion=f.descripcion,
+            sede_id=f.sede_id,
+            servicios=[s.id for s in f.servicios]
+        )
+        for f in funciones
+    ]
 
 
 # ============================================================
@@ -41,7 +57,6 @@ def get_funciones(db: Session = Depends(get_db)):
 
 @router.post("/", response_model=schemas.FuncionOut)
 def crear_funcion(funcion: schemas.FuncionCreate, db: Session = Depends(get_db)):
-
     nueva = models.Funcion(
         id=funcion.id,
         nombre=funcion.nombre,
@@ -53,12 +68,10 @@ def crear_funcion(funcion: schemas.FuncionCreate, db: Session = Depends(get_db))
     db.commit()
     db.refresh(nueva)
 
-    # Asociar servicios
     if funcion.servicios:
         servicios = db.query(models.Servicio).filter(
             models.Servicio.id.in_(funcion.servicios)
         ).all()
-
         nueva.servicios = servicios
         db.commit()
         db.refresh(nueva)
@@ -83,16 +96,13 @@ def actualizar_funcion(funcion_id: str, datos: schemas.FuncionCreate, db: Sessio
     if not funcion:
         raise HTTPException(status_code=404, detail="Función no encontrada")
 
-    # Actualizar campos básicos
     funcion.nombre = datos.nombre
     funcion.descripcion = datos.descripcion
     funcion.sede_id = datos.sede_id
 
-    # Actualizar servicios asociados
     servicios = db.query(models.Servicio).filter(
         models.Servicio.id.in_(datos.servicios)
     ).all()
-
     funcion.servicios = servicios
 
     db.commit()
@@ -108,7 +118,7 @@ def actualizar_funcion(funcion_id: str, datos: schemas.FuncionCreate, db: Sessio
 
 
 # ============================================================
-# DELETE: ELIMINAR FUNCIÓN + RELACIONES
+# DELETE: ELIMINAR FUNCIÓN
 # ============================================================
 
 @router.delete("/{funcion_id}")
@@ -120,7 +130,6 @@ def eliminar_funcion(funcion_id: str, db: Session = Depends(get_db)):
 
     funcion.servicios = []
     db.commit()
-
     db.delete(funcion)
     db.commit()
 
