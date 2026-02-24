@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from datetime import date
+from typing import Optional
 import uuid
 
 from app.database import get_db
@@ -25,7 +26,18 @@ from app.services.calendarios_service import (
     obtener_primer_disponible,
 )
 
+from pydantic import BaseModel
+
 router = APIRouter(prefix="/calendarios", tags=["Calendarios"])
+
+
+class CalendarioUpdate(BaseModel):
+    nombre: Optional[str] = None
+    pais: Optional[str] = None
+    trabaja_sabado: Optional[bool] = None
+    trabaja_domingo: Optional[bool] = None
+    mes_inicio: Optional[int] = None
+    activo: Optional[bool] = None
 
 
 # ============================================================
@@ -51,7 +63,7 @@ def crear_calendario(data: CalendarioCreate, db: Session = Depends(get_db)):
 
 
 # ============================================================
-# LISTAR CALENDARIOS
+# LISTAR CALENDARIOS POR SEDE
 # ============================================================
 
 @router.get("/", response_model=list[CalendarioSchema])
@@ -77,24 +89,83 @@ def obtener_calendario(calendario_id: str, db: Session = Depends(get_db)):
 
 
 # ============================================================
+# ACTUALIZAR CALENDARIO
+# ============================================================
+
+@router.put("/{calendario_id}", response_model=CalendarioSchema)
+def actualizar_calendario(
+    calendario_id: str,
+    data: CalendarioUpdate,
+    db: Session = Depends(get_db)
+):
+    calendario = db.query(Calendario).filter(Calendario.id == calendario_id).first()
+    if not calendario:
+        raise HTTPException(status_code=404, detail="Calendario no encontrado")
+
+    if data.nombre is not None:
+        calendario.nombre = data.nombre
+    if data.pais is not None:
+        calendario.pais = data.pais
+    if data.trabaja_sabado is not None:
+        calendario.trabaja_sabado = data.trabaja_sabado
+    if data.trabaja_domingo is not None:
+        calendario.trabaja_domingo = data.trabaja_domingo
+    if data.mes_inicio is not None:
+        calendario.mes_inicio = data.mes_inicio
+    if data.activo is not None:
+        calendario.activo = data.activo
+
+    db.commit()
+    db.refresh(calendario)
+    return calendario
+
+
+# ============================================================
+# ELIMINAR CALENDARIO
+# ============================================================
+
+@router.delete("/{calendario_id}")
+def eliminar_calendario(calendario_id: str, db: Session = Depends(get_db)):
+    calendario = db.query(Calendario).filter(Calendario.id == calendario_id).first()
+    if not calendario:
+        raise HTTPException(status_code=404, detail="Calendario no encontrado")
+
+    # Borrar datos relacionados primero
+    db.query(CalendarioDisponibilidad).filter(
+        CalendarioDisponibilidad.calendario_id == calendario_id
+    ).delete()
+
+    db.query(CalendarioHorario).filter(
+        CalendarioHorario.calendario_id == calendario_id
+    ).delete()
+
+    db.query(CalendarioFestivo).filter(
+        CalendarioFestivo.calendario_id == calendario_id
+    ).delete()
+
+    db.query(CalendarioBloqueo).filter(
+        CalendarioBloqueo.calendario_id == calendario_id
+    ).delete()
+
+    db.delete(calendario)
+    db.commit()
+
+    return {"status": "ok", "message": "Calendario eliminado"}
+
+
+# ============================================================
 # OBTENER CONFIGURACIÓN SEMANAL
 # ============================================================
 
 @router.get("/{calendario_id}/configuracion-semanal")
 def obtener_configuracion_semanal(calendario_id: str, db: Session = Depends(get_db)):
-
     horarios = db.query(CalendarioHorario).filter(
         CalendarioHorario.calendario_id == calendario_id
     ).all()
 
     respuesta = {
-        "lunes": [],
-        "martes": [],
-        "miercoles": [],
-        "jueves": [],
-        "viernes": [],
-        "sabado": [],
-        "domingo": []
+        "lunes": [], "martes": [], "miercoles": [], "jueves": [],
+        "viernes": [], "sabado": [], "domingo": []
     }
 
     for h in horarios:
@@ -118,21 +189,19 @@ def obtener_configuracion_semanal(calendario_id: str, db: Session = Depends(get_
 # ============================================================
 
 @router.post("/{calendario_id}/configurar-semana")
-def configurar_semana(calendario_id: str, data: ConfigurarSemana, db: Session = Depends(get_db)):
-
+def configurar_semana(
+    calendario_id: str,
+    data: ConfigurarSemana,
+    db: Session = Depends(get_db)
+):
     # 1. Borrar configuración previa
     db.query(CalendarioHorario).filter(
         CalendarioHorario.calendario_id == calendario_id
     ).delete()
 
     dias = {
-        1: data.lunes,
-        2: data.martes,
-        3: data.miercoles,
-        4: data.jueves,
-        5: data.viernes,
-        6: data.sabado,
-        7: data.domingo
+        1: data.lunes, 2: data.martes, 3: data.miercoles, 4: data.jueves,
+        5: data.viernes, 6: data.sabado, 7: data.domingo
     }
 
     # 2. Guardar cada día
@@ -140,7 +209,6 @@ def configurar_semana(calendario_id: str, data: ConfigurarSemana, db: Session = 
         if not config:
             continue
 
-        # Bloque mañana
         if config.manana_hora_inicio and config.manana_hora_fin:
             db.add(CalendarioHorario(
                 id=str(uuid.uuid4()),
@@ -154,7 +222,6 @@ def configurar_semana(calendario_id: str, data: ConfigurarSemana, db: Session = 
                 duracion_cita=config.manana_duracion_cita
             ))
 
-        # Bloque tarde
         if config.tarde_hora_inicio and config.tarde_hora_fin:
             db.add(CalendarioHorario(
                 id=str(uuid.uuid4()),
@@ -170,7 +237,7 @@ def configurar_semana(calendario_id: str, data: ConfigurarSemana, db: Session = 
 
     db.commit()
 
-    # 3. Regenerar disponibilidad del año completo
+    # 3. Regenerar disponibilidad
     generar_disponibilidades_automaticas(db, calendario_id)
 
     return {"status": "ok", "message": "Semana configurada correctamente"}
@@ -208,7 +275,10 @@ def obtener_disponibilidades_endpoint(
 # ============================================================
 
 @router.get("/{calendario_id}/primer-disponible", response_model=dict)
-def obtener_primer_disponible_endpoint(calendario_id: str, db: Session = Depends(get_db)):
+def obtener_primer_disponible_endpoint(
+    calendario_id: str,
+    db: Session = Depends(get_db)
+):
     resultado = obtener_primer_disponible(db=db, calendario_id=calendario_id)
 
     if not resultado:
