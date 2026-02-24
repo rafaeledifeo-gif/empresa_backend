@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Boolean
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Boolean, Date, Time
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from .database import Base
@@ -76,10 +76,8 @@ class Servicio(Base):
     sede_id = Column(String, ForeignKey("sedes.id"), nullable=False)
     sede = relationship("Sede", back_populates="servicios")
 
-    # 🔥 NUEVO CAMPO PARA ACTIVAR/DESACTIVAR SERVICIOS
     activo = Column(Boolean, default=True)
 
-    # 🔥 RELACIÓN MANY‑TO‑MANY
     funciones = relationship(
         "Funcion",
         secondary="funcion_servicio",
@@ -136,8 +134,8 @@ class Usuario(Base):
     username = Column(String, unique=True, nullable=False)
     password = Column(String, nullable=False)
 
-    perfil = Column(String, nullable=False)   # admin, operador, supervisor
-    estado = Column(String, nullable=False)   # activo / inactivo
+    perfil = Column(String, nullable=False)
+    estado = Column(String, nullable=False)
 
     funcion_id = Column(String, ForeignKey("funciones.id"), nullable=True)
 
@@ -150,31 +148,7 @@ class Usuario(Base):
     funcion = relationship("Funcion")
 
 # ============================================================
-# TICKET
-# ============================================================
-# force rebuild
-class Ticket(Base):
-    __tablename__ = "tickets"
-
-    id = Column(String, primary_key=True, index=True)
-    codigo = Column(String, nullable=False)
-    servicio_id = Column(String, ForeignKey("servicios.id"), nullable=False)
-    servicio = relationship("Servicio")
-
-    notas = Column(String)
-
-    estado = Column(String, default="pendiente")  # pendiente, llamado, cerrado
-
-    hora_creacion = Column(DateTime, server_default=func.now())
-    hora_llamado = Column(DateTime, nullable=True)
-    hora_cierre = Column(DateTime, nullable=True)
-
-    sede_id = Column(String, ForeignKey("sedes.id"), nullable=False)
-    sede = relationship("Sede")
-
-    puesto_nombre = Column(String, nullable=True)
-# ============================================================
-# CLIENTE (para app móvil)
+# CLIENTE
 # ============================================================
 
 class Cliente(Base):
@@ -186,3 +160,69 @@ class Cliente(Base):
     hashed_password = Column(String, nullable=False)
 
     fecha_creacion = Column(DateTime, server_default=func.now())
+
+# ============================================================
+# TICKET
+# ============================================================
+
+class Ticket(Base):
+    __tablename__ = "tickets"
+
+    id = Column(String, primary_key=True, index=True)
+    codigo = Column(String, nullable=False)
+    servicio_id = Column(String, ForeignKey("servicios.id"), nullable=False)
+    servicio = relationship("Servicio")
+
+    notas = Column(String)
+    estado = Column(String, default="pendiente")  # pendiente, llamado, cerrado
+
+    hora_creacion = Column(DateTime, server_default=func.now())
+    hora_llamado = Column(DateTime, nullable=True)
+    hora_cierre = Column(DateTime, nullable=True)
+
+    sede_id = Column(String, ForeignKey("sedes.id"), nullable=False)
+    sede = relationship("Sede")
+
+    puesto_nombre = Column(String, nullable=True)
+
+    # Campos nuevos vinculados a citas
+    cliente_id = Column(String, ForeignKey("clientes.id"), nullable=True)
+    cita_id = Column(String, ForeignKey("citas.id"), nullable=True)
+
+    cliente = relationship("Cliente")
+
+# ============================================================
+# CITA
+# ============================================================
+
+class Cita(Base):
+    __tablename__ = "citas"
+
+    id = Column(String, primary_key=True, index=True)
+    cliente_id = Column(String, ForeignKey("clientes.id"), nullable=False)
+    servicio_id = Column(String, ForeignKey("servicios.id"), nullable=False)
+    sede_id = Column(String, ForeignKey("sedes.id"), nullable=False)
+    calendario_id = Column(String, ForeignKey("calendarios.id"), nullable=False)
+
+    fecha = Column(String, nullable=False)   # "2026-03-15"
+    hora = Column(String, nullable=False)    # "10:30"
+
+    estado = Column(String, nullable=False, default="agendada")
+    # agendada | check_in | en_espera | en_atencion | completada | cancelada | no_asistio
+
+    ticket_id = Column(String, ForeignKey("tickets.id"), nullable=True)
+    metodo_checkin = Column(String, nullable=True)   # 'app' | 'qr'
+    hora_checkin = Column(DateTime, nullable=True)
+
+    cita_original_id = Column(String, ForeignKey("citas.id"), nullable=True)
+    notas = Column(String, nullable=True)
+    qr_token = Column(String, unique=True, nullable=True)
+
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
+
+    # Relaciones
+    cliente = relationship("Cliente")
+    servicio = relationship("Servicio")
+    sede = relationship("Sede")
+    ticket = relationship("Ticket", foreign_keys=[ticket_id])

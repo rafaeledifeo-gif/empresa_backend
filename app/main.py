@@ -2,7 +2,6 @@ import app.database
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from .init_db import init_db
 from .routers import (
     empresas,
     sedes,
@@ -12,6 +11,8 @@ from .routers import (
     usuarios,
     tickets,
     clientes,
+    calendarios,
+    citas,
 )
 
 from app.database import SessionLocal
@@ -19,9 +20,17 @@ from sqlalchemy import text
 
 app = FastAPI(debug=True)
 
+# ============================================================
+# STARTUP
+# ============================================================
+
 @app.on_event("startup")
 def on_startup():
-    init_db()
+    pass
+
+# ============================================================
+# DEBUG (opcional)
+# ============================================================
 
 @app.get("/debug-columns")
 def debug_columns():
@@ -32,6 +41,10 @@ def debug_columns():
         return {"columns": [c[0] for c in r]}
     finally:
         db.close()
+
+# ============================================================
+# CORS
+# ============================================================
 
 app.add_middleware(
     CORSMiddleware,
@@ -46,6 +59,10 @@ app.add_middleware(
 async def preflight_handler(rest_of_path: str, request: Request):
     return {}
 
+# ============================================================
+# ROUTERS
+# ============================================================
+
 app.include_router(empresas.router)
 app.include_router(sedes.router)
 app.include_router(servicios.router)
@@ -54,6 +71,12 @@ app.include_router(locaciones.router)
 app.include_router(usuarios.router)
 app.include_router(tickets.router)
 app.include_router(clientes.router)
+app.include_router(calendarios.router)
+app.include_router(citas.router)
+
+# ============================================================
+# ROOT
+# ============================================================
 
 @app.get("/")
 def root():
