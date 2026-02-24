@@ -83,15 +83,29 @@ class ServicioBase(BaseModel):
     identificador_letra: str
     rango_inicio: int
     rango_fin: int
+    tipo_servicio: Optional[str] = "directo"   # "directo" o "cita"
+    calendario_id: Optional[str] = None
 
 class ServicioCreate(ServicioBase):
     id: str
+
+class ServicioUpdate(BaseModel):
+    nombre: str
+    descripcion: Optional[str] = None
+    identificador_letra: str
+    rango_inicio: int
+    rango_fin: int
+    tipo_servicio: Optional[str] = "directo"
+    calendario_id: Optional[str] = None
+    model_config = ConfigDict(from_attributes=True)
 
 class ServicioOut(ServicioBase):
     id: str
     contador_actual: int
     ultima_generacion: Optional[datetime] = None
     activo: bool
+    tipo_servicio: str = "directo"
+    calendario_id: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 class TurnoResponse(BaseModel):

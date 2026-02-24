@@ -26,9 +26,14 @@ class Servicio(Base):
     sede_id = Column(String, ForeignKey("sedes.id"), nullable=False)
     activo = Column(Boolean, default=True)
 
+    # NUEVO: tipo de servicio y calendario vinculado
+    tipo_servicio = Column(String, default="directo")  # "directo" o "cita"
+    calendario_id = Column(String, ForeignKey("calendarios.id"), nullable=True)
+
     sede = relationship("Sede", back_populates="servicios")
     funciones = relationship(
         "Funcion",
         secondary="funcion_servicio",
         back_populates="servicios"
     )
+    calendario = relationship("Calendario", foreign_keys=[calendario_id])
