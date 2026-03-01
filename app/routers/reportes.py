@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_
+from sqlalchemy import text
 from datetime import datetime, timedelta, date
 from typing import Optional
 import uuid
@@ -19,16 +19,6 @@ def get_db():
         db.close()
 
 
-def _minutos(d: Optional[timedelta]) -> Optional[float]:
-    if d is None:
-        return None
-    return round(d.total_seconds() / 60, 1)
-
-
-# ============================================================
-# REPORTE NIVEL DE SERVICIO
-# ============================================================
-
 @router.get("/nivel-servicio/{sede_id}")
 def reporte_nivel_servicio(
     sede_id: str,
@@ -36,7 +26,6 @@ def reporte_nivel_servicio(
     fecha_fin: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
-    # Rango de fechas
     if fecha_inicio and fecha_fin:
         fi = datetime.strptime(fecha_inicio, "%Y-%m-%d")
         ff = datetime.strptime(fecha_fin, "%Y-%m-%d") + timedelta(days=1)
@@ -44,7 +33,6 @@ def reporte_nivel_servicio(
         ff = datetime.now()
         fi = ff - timedelta(days=30)
 
-    # Tickets del rango
     tickets = (
         db.query(models.Ticket)
         .filter(
@@ -55,22 +43,18 @@ def reporte_nivel_servicio(
         .all()
     )
 
-    # Servicios activos de la sede
     servicios = (
         db.query(models.Servicio)
         .filter(models.Servicio.sede_id == sede_id, models.Servicio.activo == True)
         .all()
     )
 
-    # Metas guardadas
-    metas_db = (
-        db.query(models.MetaServicioSede)
-        .filter(models.MetaServicioSede.sede_id == sede_id)
-        .all()
-    )
-    metas_map = {m.servicio_id: m for m in metas_db}
+    metas_rows = db.execute(
+        text("SELECT servicio_id, meta_espera, meta_atencion FROM metas_servicio_sede WHERE sede_id = :sid"),
+        {"sid": sede_id}
+    ).fetchall()
+    metas_map = {r[0]: {"meta_espera": r[1], "meta_atencion": r[2]} for r in metas_rows}
 
-    # Calcular por servicio
     servicios_data = []
     for svc in servicios:
         ts = [t for t in tickets if t.servicio_id == svc.id]
@@ -88,11 +72,10 @@ def reporte_nivel_servicio(
         prom_espera = round(sum(esperas) / len(esperas), 1) if esperas else None
         prom_atencion = round(sum(atenciones) / len(atenciones), 1) if atenciones else None
 
-        meta = metas_map.get(svc.id)
-        meta_espera = meta.meta_espera if meta else 15
-        meta_atencion = meta.meta_atencion if meta else 20
+        meta = metas_map.get(svc.id, {})
+        meta_espera = meta.get("meta_espera", 15)
+        meta_atencion = meta.get("meta_atencion", 20)
 
-        # Cumplimientos
         cumpl_espera = None
         if esperas:
             dentro = sum(1 for e in esperas if e <= meta_espera)
@@ -103,7 +86,6 @@ def reporte_nivel_servicio(
             dentro = sum(1 for a in atenciones if a <= meta_atencion)
             cumpl_atencion = round(dentro / len(atenciones) * 100, 1)
 
-        # Nivel de servicio (60% espera + 40% atención)
         nivel = None
         if cumpl_espera is not None and cumpl_atencion is not None:
             nivel = round(cumpl_espera * 0.6 + cumpl_atencion * 0.4, 1)
@@ -126,7 +108,6 @@ def reporte_nivel_servicio(
             "nivel_servicio": nivel,
         })
 
-    # KPIs globales ponderados por volumen
     total_volumen = sum(s["volumen"] for s in servicios_data)
 
     def ponderado(campo):
@@ -155,10 +136,6 @@ def reporte_nivel_servicio(
     }
 
 
-# ============================================================
-# GUARDAR / ACTUALIZAR METAS
-# ============================================================
-
 @router.put("/metas/{sede_id}/{servicio_id}")
 def guardar_meta(
     sede_id: str,
@@ -167,34 +144,24 @@ def guardar_meta(
     meta_atencion: int = Query(...),
     db: Session = Depends(get_db),
 ):
-    meta = (
-        db.query(models.MetaServicioSede)
-        .filter(
-            models.MetaServicioSede.sede_id == sede_id,
-            models.MetaServicioSede.servicio_id == servicio_id,
+    existing = db.execute(
+        text("SELECT id FROM metas_servicio_sede WHERE sede_id = :sid AND servicio_id = :svcid"),
+        {"sid": sede_id, "svcid": servicio_id}
+    ).fetchone()
+
+    if existing:
+        db.execute(
+            text("UPDATE metas_servicio_sede SET meta_espera = :me, meta_atencion = :ma, updated_at = NOW() WHERE sede_id = :sid AND servicio_id = :svcid"),
+            {"me": meta_espera, "ma": meta_atencion, "sid": sede_id, "svcid": servicio_id}
         )
-        .first()
-    )
-    if meta:
-        meta.meta_espera = meta_espera
-        meta.meta_atencion = meta_atencion
-        meta.updated_at = datetime.now()
     else:
-        meta = models.MetaServicioSede(
-            id=str(uuid.uuid4()),
-            sede_id=sede_id,
-            servicio_id=servicio_id,
-            meta_espera=meta_espera,
-            meta_atencion=meta_atencion,
+        db.execute(
+            text("INSERT INTO metas_servicio_sede (id, sede_id, servicio_id, meta_espera, meta_atencion) VALUES (:id, :sid, :svcid, :me, :ma)"),
+            {"id": str(uuid.uuid4()), "sid": sede_id, "svcid": servicio_id, "me": meta_espera, "ma": meta_atencion}
         )
-        db.add(meta)
     db.commit()
     return {"status": "ok", "meta_espera": meta_espera, "meta_atencion": meta_atencion}
 
-
-# ============================================================
-# REPORTE CITAS PROGRAMADAS (7 días)
-# ============================================================
 
 @router.get("/citas-programadas/{sede_id}")
 def reporte_citas_programadas(
@@ -204,7 +171,6 @@ def reporte_citas_programadas(
     hoy = date.today()
     hasta = hoy + timedelta(days=7)
 
-    # Citas agendadas en el rango
     citas = (
         db.query(models.Cita, models.Servicio.nombre.label("svc_nombre"))
         .join(models.Servicio, models.Cita.servicio_id == models.Servicio.id)
@@ -217,38 +183,34 @@ def reporte_citas_programadas(
         .all()
     )
 
-    # Disponibilidades totales del rango (capacidad)
-    from app.models.calendarios import CalendarioDisponibilidad, Calendario
-    calendarios = (
-        db.query(Calendario)
-        .filter(Calendario.sede_id == sede_id, Calendario.activo == True)
-        .all()
-    )
-    cal_ids = [c.id for c in calendarios]
+    cal_rows = db.execute(
+        text("SELECT id FROM calendarios WHERE sede_id = :sid AND activo = true"),
+        {"sid": sede_id}
+    ).fetchall()
+    cal_ids = [r[0] for r in cal_rows]
 
-    disponibilidades = []
+    capacidad_total = 0
+    disponibilidades_por_dia = {}
     if cal_ids:
-        disponibilidades = (
-            db.query(CalendarioDisponibilidad)
-            .filter(
-                CalendarioDisponibilidad.calendario_id.in_(cal_ids),
-                CalendarioDisponibilidad.fecha >= hoy,
-                CalendarioDisponibilidad.fecha <= hasta,
-            )
-            .all()
-        )
+        ids_str = ",".join(f"'{c}'" for c in cal_ids)
+        disp_rows = db.execute(
+            text(f"SELECT fecha FROM calendario_disponibilidades WHERE calendario_id IN ({ids_str}) AND fecha >= :hoy AND fecha <= :hasta"),
+            {"hoy": str(hoy), "hasta": str(hasta)}
+        ).fetchall()
+        capacidad_total = len(disp_rows)
+        for r in disp_rows:
+            fecha_str = str(r[0])
+            disponibilidades_por_dia[fecha_str] = disponibilidades_por_dia.get(fecha_str, 0) + 1
 
-    capacidad_total = len(disponibilidades)
     citas_total = len(citas)
     ocupacion_global = round(citas_total / capacidad_total * 100, 1) if capacidad_total > 0 else 0
 
-    # Por día
     dias = {}
     for i in range(8):
         d = hoy + timedelta(days=i)
         fecha_str = str(d)
         citas_dia = [c for c, _ in citas if c.fecha == fecha_str]
-        cap_dia = len([d for d in disponibilidades if str(d.fecha) == fecha_str])
+        cap_dia = disponibilidades_por_dia.get(fecha_str, 0)
         ocup = round(len(citas_dia) / cap_dia * 100, 1) if cap_dia > 0 else 0
         dias[fecha_str] = {
             "fecha": fecha_str,
@@ -258,7 +220,6 @@ def reporte_citas_programadas(
             "riesgo": "rojo" if ocup >= 85 else "amarillo" if ocup >= 70 else "verde",
         }
 
-    # Por servicio
     servicios = (
         db.query(models.Servicio)
         .filter(models.Servicio.sede_id == sede_id, models.Servicio.activo == True)
@@ -280,13 +241,9 @@ def reporte_citas_programadas(
             "riesgo": "rojo" if ocupacion_svc >= 85 else "amarillo" if ocupacion_svc >= 70 else "verde",
         })
 
-    # Día más saturado
     dia_max = max(dias.values(), key=lambda d: d["ocupacion"]) if dias else None
-
-    # Servicio más demandado
     svc_max = max(servicios_data, key=lambda s: s["citas_programadas"]) if servicios_data else None
 
-    # Métricas históricas (últimos 30 días)
     hace_30 = hoy - timedelta(days=30)
     citas_hist = (
         db.query(models.Cita)
@@ -321,13 +278,7 @@ def reporte_citas_programadas(
         "dias_promedio_agendamiento": round(sum(tiempos_agendamiento) / len(tiempos_agendamiento), 1) if tiempos_agendamiento else 0,
     }
 
-    # Índice de riesgo global
-    if ocupacion_global >= 85:
-        riesgo_global = "rojo"
-    elif ocupacion_global >= 70:
-        riesgo_global = "amarillo"
-    else:
-        riesgo_global = "verde"
+    riesgo_global = "rojo" if ocupacion_global >= 85 else "amarillo" if ocupacion_global >= 70 else "verde"
 
     return {
         "fecha_inicio": str(hoy),
