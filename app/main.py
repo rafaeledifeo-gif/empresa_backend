@@ -3,6 +3,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from .routers import (
+    reportes,
     empresas,
     sedes,
     servicios,
@@ -73,6 +74,7 @@ app.include_router(tickets.router)
 app.include_router(clientes.router)
 app.include_router(calendarios.router)
 app.include_router(citas.router)
+app.include_router(reportes.router)
 
 # ============================================================
 # ROOT
