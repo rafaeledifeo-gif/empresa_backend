@@ -226,15 +226,18 @@ class Cita(Base):
     servicio = relationship("Servicio")
     sede = relationship("Sede")
     ticket = relationship("Ticket", foreign_keys=[ticket_id])
+# ============================================================
+# META SERVICIO SEDE
+# ============================================================
 
-    class MetaServicioSede(Base):
+class MetaServicioSede(Base):
     __tablename__ = "metas_servicio_sede"
 
     id = Column(String, primary_key=True, index=True)
     sede_id = Column(String, ForeignKey("sedes.id"), nullable=False)
     servicio_id = Column(String, ForeignKey("servicios.id"), nullable=False)
-    meta_espera = Column(Integer, nullable=False, default=15)    # minutos
-    meta_atencion = Column(Integer, nullable=False, default=20)  # minutos
+    meta_espera = Column(Integer, nullable=False, default=15)
+    meta_atencion = Column(Integer, nullable=False, default=20)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     sede = relationship("Sede")
