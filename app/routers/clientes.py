@@ -1,34 +1,35 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from uuid import uuid4
-from app.database import get_db
-from app.models import Cliente
 from pydantic import BaseModel
 from typing import Optional
 from passlib.context import CryptContext
+import uuid
 
-router = APIRouter()
+from ..database import SessionLocal
+from .. import models
+
+router = APIRouter(tags=["Clientes"])
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
-def verify_password(password: str, hashed: str) -> bool:
-    return pwd_context.verify(password, hashed)
+def verify_password(plain: str, hashed: str) -> bool:
+    return pwd_context.verify(plain, hashed)
 
-# ============================================================
-# SCHEMAS
-# ============================================================
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 class ClienteCreate(BaseModel):
     nombre: str
     email: Optional[str] = None
-    password: Optional[str] = None
-    numero_identificacion: Optional[str] = None
-
-class ClienteLogin(BaseModel):
-    email: str
     password: str
+    numero_identificacion: Optional[str] = None
 
 class ClienteOut(BaseModel):
     id: str
@@ -39,81 +40,54 @@ class ClienteOut(BaseModel):
     class Config:
         from_attributes = True
 
-# ============================================================
-# POST: Crear cliente (desde app móvil u operador)
-# ============================================================
+class ClienteLogin(BaseModel):
+    email: Optional[str] = None
+    numero_identificacion: Optional[str] = None
+    password: str
 
-@router.post("/clientes", response_model=ClienteOut)
-def crear_cliente(data: ClienteCreate, db: Session = Depends(get_db)):
-    # Verificar duplicado por email
+@router.post("/clientes/", response_model=ClienteOut)
+def registrar_cliente(data: ClienteCreate, db: Session = Depends(get_db)):
     if data.email:
-        if db.query(Cliente).filter_by(email=data.email).first():
-            raise HTTPException(status_code=400, detail="Email ya registrado")
-
-    # Verificar duplicado por número de identificación
+        if db.query(models.Cliente).filter_by(email=data.email).first():
+            raise HTTPException(status_code=400, detail="Ya existe un cliente con ese email")
     if data.numero_identificacion:
-        if db.query(Cliente).filter_by(
-            numero_identificacion=data.numero_identificacion
-        ).first():
-            raise HTTPException(
-                status_code=400,
-                detail="Ya existe un cliente con ese número de identificación"
-            )
-
-    nuevo = Cliente(
-        id=str(uuid4()),
+        if db.query(models.Cliente).filter_by(numero_identificacion=data.numero_identificacion).first():
+            raise HTTPException(status_code=400, detail="Ya existe un cliente con ese número de identificación")
+    nuevo = models.Cliente(
+        id=str(uuid.uuid4()),
         nombre=data.nombre,
         email=data.email,
         numero_identificacion=data.numero_identificacion,
-        hashed_password=hash_password(data.password) if data.password else "",
+        hashed_password=hash_password(data.password),
     )
     db.add(nuevo)
     db.commit()
     db.refresh(nuevo)
     return nuevo
 
-# ============================================================
-# GET: Buscar cliente por número de identificación
-# ============================================================
+@router.post("/login", response_model=ClienteOut)
+def login_cliente(data: ClienteLogin, db: Session = Depends(get_db)):
+    cliente = None
+    if data.email:
+        cliente = db.query(models.Cliente).filter_by(email=data.email).first()
+    elif data.numero_identificacion:
+        cliente = db.query(models.Cliente).filter_by(numero_identificacion=data.numero_identificacion).first()
+    else:
+        raise HTTPException(status_code=400, detail="Proporciona email o número de identificación")
+    if not cliente or not verify_password(data.password, cliente.hashed_password):
+        raise HTTPException(status_code=401, detail="Credenciales inválidas")
+    return cliente
 
 @router.get("/clientes/buscar/{numero_identificacion}", response_model=ClienteOut)
 def buscar_cliente(numero_identificacion: str, db: Session = Depends(get_db)):
-    cliente = db.query(Cliente).filter_by(
-        numero_identificacion=numero_identificacion
-    ).first()
+    cliente = db.query(models.Cliente).filter_by(numero_identificacion=numero_identificacion).first()
     if not cliente:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
     return cliente
-
-# ============================================================
-# GET: Buscar cliente por email
-# ============================================================
-
-@router.get("/clientes/buscar-email/{email}", response_model=ClienteOut)
-def buscar_cliente_email(email: str, db: Session = Depends(get_db)):
-    cliente = db.query(Cliente).filter_by(email=email).first()
-    if not cliente:
-        raise HTTPException(status_code=404, detail="Cliente no encontrado")
-    return cliente
-
-# ============================================================
-# GET: Obtener cliente por ID
-# ============================================================
 
 @router.get("/clientes/{cliente_id}", response_model=ClienteOut)
 def get_cliente(cliente_id: str, db: Session = Depends(get_db)):
-    cliente = db.query(Cliente).filter_by(id=cliente_id).first()
+    cliente = db.query(models.Cliente).filter_by(id=cliente_id).first()
     if not cliente:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
-    return cliente
-
-# ============================================================
-# POST: Login cliente (app móvil)
-# ============================================================
-
-@router.post("/login", response_model=ClienteOut)
-def login_cliente(data: ClienteLogin, db: Session = Depends(get_db)):
-    cliente = db.query(Cliente).filter_by(email=data.email).first()
-    if not cliente or not verify_password(data.password, cliente.hashed_password):
-        raise HTTPException(status_code=401, detail="Credenciales inválidas")
     return cliente
