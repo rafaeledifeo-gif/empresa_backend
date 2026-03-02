@@ -9,9 +9,6 @@ import asyncio
 router = APIRouter(prefix="/tickets", tags=["Tickets"])
 
 
-# ============================================================
-# DB SESSION
-# ============================================================
 def get_db():
     db = SessionLocal()
     try:
@@ -26,12 +23,10 @@ def get_db():
 @router.post("/crear", response_model=schemas.TicketOut)
 def crear_ticket(data: schemas.TicketCreate, db: Session = Depends(get_db)):
     servicio = db.query(models.Servicio).filter(models.Servicio.id == data.servicio_id).first()
-
     if not servicio:
         raise HTTPException(status_code=404, detail="Servicio no encontrado")
 
     hoy = datetime.now().date()
-
     ultima_fecha = None
     if servicio.ultima_generacion is not None:
         if isinstance(servicio.ultima_generacion, datetime):
@@ -64,8 +59,26 @@ def crear_ticket(data: schemas.TicketCreate, db: Session = Depends(get_db)):
 
     data_out = ticket.__dict__.copy()
     data_out["servicio_nombre"] = servicio.nombre
-
     return data_out
+
+
+# ============================================================
+# OBTENER TICKET POR ID  ← NUEVO
+# ============================================================
+@router.get("/{ticket_id}", response_model=schemas.TicketOut)
+def get_ticket(ticket_id: str, db: Session = Depends(get_db)):
+    row = (
+        db.query(models.Ticket, models.Servicio.nombre.label("servicio_nombre"))
+        .join(models.Servicio, models.Ticket.servicio_id == models.Servicio.id)
+        .filter(models.Ticket.id == ticket_id)
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Ticket no encontrado")
+    ticket, servicio_nombre = row
+    data = ticket.__dict__.copy()
+    data["servicio_nombre"] = servicio_nombre
+    return data
 
 
 # ============================================================
@@ -80,13 +93,11 @@ def get_tickets_sede(sede_id: str, db: Session = Depends(get_db)):
         .order_by(models.Ticket.hora_creacion.asc())
         .all()
     )
-
     resultado = []
     for ticket, servicio_nombre in rows:
         data = ticket.__dict__.copy()
         data["servicio_nombre"] = servicio_nombre
         resultado.append(data)
-
     return resultado
 
 
@@ -105,18 +116,16 @@ def get_tickets_estado(sede_id: str, estado: str, db: Session = Depends(get_db))
         .order_by(models.Ticket.hora_creacion.asc())
         .all()
     )
-
     resultado = []
     for ticket, servicio_nombre in rows:
         data = ticket.__dict__.copy()
         data["servicio_nombre"] = servicio_nombre
         resultado.append(data)
-
     return resultado
 
 
 # ============================================================
-# LLAMAR TICKET (puesto obligatorio)
+# LLAMAR TICKET
 # ============================================================
 @router.put("/llamar/{ticket_id}", response_model=schemas.TicketOut)
 def llamar_ticket(
@@ -125,25 +134,21 @@ def llamar_ticket(
     db: Session = Depends(get_db)
 ):
     ticket = db.query(models.Ticket).filter(models.Ticket.id == ticket_id).first()
-
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket no encontrado")
-
     if not puesto_nombre:
         raise HTTPException(status_code=400, detail="Debe especificar un puesto")
 
     ticket.estado = "llamado"
     ticket.hora_llamado = datetime.now()
-    ticket.puesto_nombre = puesto_nombre  # ⭐ SE GUARDA EL PUESTO
+    ticket.puesto_nombre = puesto_nombre
 
     db.commit()
     db.refresh(ticket)
 
     servicio = db.query(models.Servicio).filter(models.Servicio.id == ticket.servicio_id).first()
-
     data = ticket.__dict__.copy()
     data["servicio_nombre"] = servicio.nombre
-
     return data
 
 
@@ -153,7 +158,6 @@ def llamar_ticket(
 @router.put("/cerrar/{ticket_id}", response_model=schemas.TicketOut)
 def cerrar_ticket(ticket_id: str, db: Session = Depends(get_db)):
     ticket = db.query(models.Ticket).filter(models.Ticket.id == ticket_id).first()
-
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket no encontrado")
 
@@ -164,10 +168,8 @@ def cerrar_ticket(ticket_id: str, db: Session = Depends(get_db)):
     db.refresh(ticket)
 
     servicio = db.query(models.Servicio).filter(models.Servicio.id == ticket.servicio_id).first()
-
     data = ticket.__dict__.copy()
     data["servicio_nombre"] = servicio.nombre
-
     return data
 
 
@@ -177,13 +179,10 @@ def cerrar_ticket(ticket_id: str, db: Session = Depends(get_db)):
 @router.delete("/eliminar/{ticket_id}")
 def eliminar_ticket(ticket_id: str, db: Session = Depends(get_db)):
     ticket = db.query(models.Ticket).filter(models.Ticket.id == ticket_id).first()
-
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket no encontrado")
-
     db.delete(ticket)
     db.commit()
-
     return {"mensaje": "Ticket eliminado correctamente"}
 
 
@@ -195,7 +194,7 @@ async def ticket_ws(websocket: WebSocket, ticket_id: str):
     await websocket.accept()
     db = SessionLocal()
     try:
-        last_payload = None
+        last_estado = None
         while True:
             ticket = (
                 db.query(models.Ticket, models.Servicio.nombre.label("servicio_nombre"))
@@ -210,15 +209,22 @@ async def ticket_ws(websocket: WebSocket, ticket_id: str):
                 continue
 
             ticket_obj, servicio_nombre = ticket
-            data = ticket_obj.__dict__.copy()
-            data["servicio_nombre"] = servicio_nombre
 
-            # ⭐ Ahora sí envía el puesto real
-            data["puesto_nombre"] = ticket_obj.puesto_nombre or "No asignado"
+            payload = {
+                "estado": ticket_obj.estado,
+                "codigo": ticket_obj.codigo,
+                "puesto_nombre": ticket_obj.puesto_nombre or "",
+                "servicio_nombre": servicio_nombre,
+            }
 
-            if data != last_payload:
-                await websocket.send_json(data)
-                last_payload = data
+            # Solo enviar si cambió el estado
+            if payload["estado"] != last_estado:
+                await websocket.send_json(payload)
+                last_estado = payload["estado"]
+
+            if ticket_obj.estado == "cerrado":
+                await asyncio.sleep(2)
+                break
 
             await asyncio.sleep(1)
 
