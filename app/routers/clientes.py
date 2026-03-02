@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
@@ -25,6 +26,8 @@ def get_db():
     finally:
         db.close()
 
+CORS_HEADERS = {"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "*", "Access-Control-Allow-Methods": "*"}
+
 class ClienteCreate(BaseModel):
     nombre: str
     email: Optional[str] = None
@@ -36,7 +39,6 @@ class ClienteOut(BaseModel):
     nombre: str
     email: Optional[str] = None
     numero_identificacion: Optional[str] = None
-
     class Config:
         from_attributes = True
 
@@ -45,7 +47,7 @@ class ClienteLogin(BaseModel):
     numero_identificacion: Optional[str] = None
     password: str
 
-@router.post("/clientes/", response_model=ClienteOut)
+@router.post("/clientes/")
 def registrar_cliente(data: ClienteCreate, db: Session = Depends(get_db)):
     if data.email:
         if db.query(models.Cliente).filter_by(email=data.email).first():
@@ -54,18 +56,14 @@ def registrar_cliente(data: ClienteCreate, db: Session = Depends(get_db)):
         if db.query(models.Cliente).filter_by(numero_identificacion=data.numero_identificacion).first():
             raise HTTPException(status_code=400, detail="Ya existe un cliente con ese número de identificación")
     nuevo = models.Cliente(
-        id=str(uuid.uuid4()),
-        nombre=data.nombre,
-        email=data.email,
+        id=str(uuid.uuid4()), nombre=data.nombre, email=data.email,
         numero_identificacion=data.numero_identificacion,
         hashed_password=hash_password(data.password),
     )
-    db.add(nuevo)
-    db.commit()
-    db.refresh(nuevo)
-    return nuevo
+    db.add(nuevo); db.commit(); db.refresh(nuevo)
+    return JSONResponse(content={"id": nuevo.id, "nombre": nuevo.nombre, "email": nuevo.email, "numero_identificacion": nuevo.numero_identificacion}, headers=CORS_HEADERS)
 
-@router.post("/login", response_model=ClienteOut)
+@router.post("/login")
 def login_cliente(data: ClienteLogin, db: Session = Depends(get_db)):
     cliente = None
     if data.email:
@@ -76,7 +74,7 @@ def login_cliente(data: ClienteLogin, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Proporciona email o número de identificación")
     if not cliente or not verify_password(data.password, cliente.hashed_password):
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
-    return cliente
+    return JSONResponse(content={"id": cliente.id, "nombre": cliente.nombre, "email": cliente.email, "numero_identificacion": cliente.numero_identificacion}, headers=CORS_HEADERS)
 
 @router.get("/clientes/buscar/{numero_identificacion}", response_model=ClienteOut)
 def buscar_cliente(numero_identificacion: str, db: Session = Depends(get_db)):
