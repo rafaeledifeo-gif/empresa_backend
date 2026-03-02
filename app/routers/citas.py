@@ -8,6 +8,10 @@ import secrets
 
 router = APIRouter(prefix="/citas", tags=["Citas"])
 
+# ============================================================
+# DB SESSION
+# ============================================================
+
 def get_db():
     db = SessionLocal()
     try:
@@ -15,18 +19,9 @@ def get_db():
     finally:
         db.close()
 
-def _to_dict(cita, servicio_nombre, cliente_nombre):
-    """Serializa una cita convirtiendo date/time a string explícitamente."""
-    data = {}
-    for col in cita.__table__.columns:
-        val = getattr(cita, col.name)
-        if hasattr(val, 'isoformat'):          # date, time, datetime
-            data[col.name] = str(val)[:5] if hasattr(val, 'hour') and not hasattr(val, 'year') else str(val)
-        else:
-            data[col.name] = val
-    data["servicio_nombre"] = servicio_nombre
-    data["cliente_nombre"] = cliente_nombre
-    return data
+# ============================================================
+# AGENDAR CITA
+# ============================================================
 
 @router.post("/agendar", response_model=schemas.CitaOut)
 def agendar_cita(data: schemas.CitaCreate, db: Session = Depends(get_db)):
@@ -38,6 +33,7 @@ def agendar_cita(data: schemas.CitaCreate, db: Session = Depends(get_db)):
     if not servicio:
         raise HTTPException(status_code=404, detail="Servicio no encontrado")
 
+    # Verificar conflicto de horario
     conflicto = db.query(models.Cita).filter(
         models.Cita.cliente_id == data.cliente_id,
         models.Cita.sede_id == data.sede_id,
@@ -62,10 +58,20 @@ def agendar_cita(data: schemas.CitaCreate, db: Session = Depends(get_db)):
         notas=data.notas,
         qr_token=qr_token,
     )
+
     db.add(cita)
     db.commit()
     db.refresh(cita)
-    return _to_dict(cita, servicio.nombre, cliente.nombre)
+
+    result = cita.__dict__.copy()
+    result["servicio_nombre"] = servicio.nombre
+    result["cliente_nombre"] = cliente.nombre
+
+    return result
+
+# ============================================================
+# OBTENER CITAS DE UN CLIENTE
+# ============================================================
 
 @router.get("/cliente/{cliente_id}", response_model=list[schemas.CitaOut])
 def get_citas_cliente(cliente_id: str, db: Session = Depends(get_db)):
@@ -77,7 +83,19 @@ def get_citas_cliente(cliente_id: str, db: Session = Depends(get_db)):
         .order_by(models.Cita.fecha.asc(), models.Cita.hora.asc())
         .all()
     )
-    return [_to_dict(c, sn, cn) for c, sn, cn in rows]
+
+    resultado = []
+    for cita, servicio_nombre, cliente_nombre in rows:
+        data = cita.__dict__.copy()
+        data["servicio_nombre"] = servicio_nombre
+        data["cliente_nombre"] = cliente_nombre
+        resultado.append(data)
+
+    return resultado
+
+# ============================================================
+# OBTENER CITAS DE UNA SEDE POR FECHA
+# ============================================================
 
 @router.get("/sede/{sede_id}/fecha/{fecha}", response_model=list[schemas.CitaOut])
 def get_citas_sede_fecha(sede_id: str, fecha: str, db: Session = Depends(get_db)):
@@ -85,35 +103,60 @@ def get_citas_sede_fecha(sede_id: str, fecha: str, db: Session = Depends(get_db)
         db.query(models.Cita, models.Servicio.nombre.label("servicio_nombre"), models.Cliente.nombre.label("cliente_nombre"))
         .join(models.Servicio, models.Cita.servicio_id == models.Servicio.id)
         .join(models.Cliente, models.Cita.cliente_id == models.Cliente.id)
-        .filter(models.Cita.sede_id == sede_id, models.Cita.fecha == fecha)
+        .filter(
+            models.Cita.sede_id == sede_id,
+            models.Cita.fecha == fecha
+        )
         .order_by(models.Cita.hora.asc())
         .all()
     )
-    return [_to_dict(c, sn, cn) for c, sn, cn in rows]
+
+    resultado = []
+    for cita, servicio_nombre, cliente_nombre in rows:
+        data = cita.__dict__.copy()
+        data["servicio_nombre"] = servicio_nombre
+        data["cliente_nombre"] = cliente_nombre
+        resultado.append(data)
+
+    return resultado
+
+# ============================================================
+# CHECK-IN POR APP
+# ============================================================
 
 @router.put("/checkin/app/{cita_id}", response_model=schemas.CitaOut)
 def checkin_app(cita_id: str, db: Session = Depends(get_db)):
     cita = db.query(models.Cita).filter(models.Cita.id == cita_id).first()
     if not cita:
         raise HTTPException(status_code=404, detail="Cita no encontrada")
+
     if cita.estado != "agendada":
         raise HTTPException(status_code=400, detail=f"La cita está en estado '{cita.estado}', no se puede hacer check-in")
+
     return _procesar_checkin(cita, metodo="app", db=db)
+
+# ============================================================
+# CHECK-IN POR QR
+# ============================================================
 
 @router.put("/checkin/qr/{qr_token}", response_model=schemas.CitaOut)
 def checkin_qr(qr_token: str, db: Session = Depends(get_db)):
     cita = db.query(models.Cita).filter(models.Cita.qr_token == qr_token).first()
     if not cita:
         raise HTTPException(status_code=404, detail="QR inválido o cita no encontrada")
+
     if cita.estado != "agendada":
         raise HTTPException(status_code=400, detail=f"La cita está en estado '{cita.estado}', no se puede hacer check-in")
+
     return _procesar_checkin(cita, metodo="qr", db=db)
 
+# ============================================================
+# LÓGICA INTERNA DE CHECK-IN
+# ============================================================
+
 def _procesar_checkin(cita: models.Cita, metodo: str, db: Session):
-    ahora = datetime.now()
-    fecha_str = str(cita.fecha)
-    hora_str = str(cita.hora)[:5]
-    hora_cita = datetime.strptime(f"{fecha_str} {hora_str}", "%Y-%m-%d %H:%M")
+    ahora = datetime.utcnow()
+    hora_cita = datetime.strptime(f"{cita.fecha} {cita.hora}", "%Y-%m-%d %H:%M")
     ventana_inicio = hora_cita - timedelta(minutes=20)
     ventana_fin = hora_cita + timedelta(minutes=20)
 
@@ -163,18 +206,30 @@ def _procesar_checkin(cita: models.Cita, metodo: str, db: Session):
 
     db.commit()
     db.refresh(cita)
-    return _to_dict(cita, servicio.nombre, cliente.nombre)
+
+    result = cita.__dict__.copy()
+    result["servicio_nombre"] = servicio.nombre
+    result["cliente_nombre"] = cliente.nombre
+
+    return result
+
+# ============================================================
+# REAGENDAR CITA
+# ============================================================
 
 @router.put("/reagendar/{cita_id}", response_model=schemas.CitaOut)
 def reagendar_cita(cita_id: str, data: schemas.CitaReagendar, db: Session = Depends(get_db)):
     cita_original = db.query(models.Cita).filter(models.Cita.id == cita_id).first()
     if not cita_original:
         raise HTTPException(status_code=404, detail="Cita no encontrada")
+
     if cita_original.estado not in ["agendada"]:
         raise HTTPException(status_code=400, detail="Solo se pueden reagendar citas en estado 'agendada'")
 
+    # Cancelar la cita original
     cita_original.estado = "cancelada"
 
+    # Crear la nueva cita
     nueva_cita = models.Cita(
         id=str(uuid.uuid4()),
         cliente_id=cita_original.cliente_id,
@@ -188,19 +243,30 @@ def reagendar_cita(cita_id: str, data: schemas.CitaReagendar, db: Session = Depe
         qr_token=secrets.token_urlsafe(16),
         cita_original_id=cita_original.id,
     )
+
     db.add(nueva_cita)
     db.commit()
     db.refresh(nueva_cita)
 
     servicio = db.query(models.Servicio).filter(models.Servicio.id == nueva_cita.servicio_id).first()
     cliente = db.query(models.Cliente).filter(models.Cliente.id == nueva_cita.cliente_id).first()
-    return _to_dict(nueva_cita, servicio.nombre, cliente.nombre)
+
+    result = nueva_cita.__dict__.copy()
+    result["servicio_nombre"] = servicio.nombre
+    result["cliente_nombre"] = cliente.nombre
+
+    return result
+
+# ============================================================
+# CANCELAR CITA
+# ============================================================
 
 @router.put("/cancelar/{cita_id}", response_model=schemas.CitaOut)
 def cancelar_cita(cita_id: str, db: Session = Depends(get_db)):
     cita = db.query(models.Cita).filter(models.Cita.id == cita_id).first()
     if not cita:
         raise HTTPException(status_code=404, detail="Cita no encontrada")
+
     if cita.estado not in ["agendada"]:
         raise HTTPException(status_code=400, detail=f"No se puede cancelar una cita en estado '{cita.estado}'")
 
@@ -210,7 +276,16 @@ def cancelar_cita(cita_id: str, db: Session = Depends(get_db)):
 
     servicio = db.query(models.Servicio).filter(models.Servicio.id == cita.servicio_id).first()
     cliente = db.query(models.Cliente).filter(models.Cliente.id == cita.cliente_id).first()
-    return _to_dict(cita, servicio.nombre, cliente.nombre)
+
+    result = cita.__dict__.copy()
+    result["servicio_nombre"] = servicio.nombre
+    result["cliente_nombre"] = cliente.nombre
+
+    return result
+
+# ============================================================
+# MARCAR NO ASISTIO (para operadores)
+# ============================================================
 
 @router.put("/no-asistio/{cita_id}", response_model=schemas.CitaOut)
 def no_asistio(cita_id: str, db: Session = Depends(get_db)):
@@ -224,7 +299,16 @@ def no_asistio(cita_id: str, db: Session = Depends(get_db)):
 
     servicio = db.query(models.Servicio).filter(models.Servicio.id == cita.servicio_id).first()
     cliente = db.query(models.Cliente).filter(models.Cliente.id == cita.cliente_id).first()
-    return _to_dict(cita, servicio.nombre, cliente.nombre)
+
+    result = cita.__dict__.copy()
+    result["servicio_nombre"] = servicio.nombre
+    result["cliente_nombre"] = cliente.nombre
+
+    return result
+
+# ============================================================
+# OBTENER CITA POR ID
+# ============================================================
 
 @router.get("/{cita_id}", response_model=schemas.CitaOut)
 def get_cita(cita_id: str, db: Session = Depends(get_db)):
@@ -235,7 +319,13 @@ def get_cita(cita_id: str, db: Session = Depends(get_db)):
         .filter(models.Cita.id == cita_id)
         .first()
     )
+
     if not row:
         raise HTTPException(status_code=404, detail="Cita no encontrada")
-    cita, sn, cn = row
-    return _to_dict(cita, sn, cn)
+
+    cita, servicio_nombre, cliente_nombre = row
+    result = cita.__dict__.copy()
+    result["servicio_nombre"] = servicio_nombre
+    result["cliente_nombre"] = cliente_nombre
+
+    return result
