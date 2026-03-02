@@ -1,5 +1,5 @@
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, date, time
 from pydantic import BaseModel, Field 
 from pydantic import ConfigDict
 
@@ -187,6 +187,7 @@ class TicketOut(TicketBase):
     servicio_nombre: str
     cliente_id: Optional[str] = None
     cita_id: Optional[str] = None
+    puesto_nombre: Optional[str] = None
     
     model_config = ConfigDict(from_attributes=True)
 
@@ -211,8 +212,8 @@ class CitaOut(BaseModel):
     servicio_id: str
     sede_id: str
     calendario_id: str
-    fecha: str
-    hora: str
+    fecha: date | str
+    hora: time | str
     estado: str
     ticket_id: Optional[str] = None
     metodo_checkin: Optional[str] = None
@@ -225,6 +226,20 @@ class CitaOut(BaseModel):
     cliente_nombre: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    from pydantic import field_serializer
+
+    @field_serializer("fecha")
+    def serialize_fecha(self, v) -> str:
+        return str(v) if v else v
+
+    @field_serializer("hora")
+    def serialize_hora(self, v) -> str:
+        if v is None:
+            return v
+        s = str(v)
+        return s[:5]  # HH:MM
+
 
 class CitaReagendar(BaseModel):
     nueva_fecha: str
