@@ -59,34 +59,8 @@ def crear_ticket(data: schemas.TicketCreate, db: Session = Depends(get_db)):
 
     data_out = ticket.__dict__.copy()
     data_out["servicio_nombre"] = servicio.nombre
+    data_out["puesto_nombre"] = ticket.puesto_nombre or ""
     return data_out
-
-
-# ============================================================
-# OBTENER TICKET POR ID
-# ============================================================
-@router.get("/{ticket_id}", response_model=schemas.TicketOut)
-def get_ticket(ticket_id: str, db: Session = Depends(get_db)):
-    ticket = db.query(models.Ticket).filter(models.Ticket.id == ticket_id).first()
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket no encontrado")
-    servicio = db.query(models.Servicio).filter(models.Servicio.id == ticket.servicio_id).first()
-    print(f"DEBUG puesto_nombre: {ticket.puesto_nombre}")
-    return {
-        "id": ticket.id,
-        "codigo": ticket.codigo,
-        "estado": ticket.estado,
-        "servicio_id": ticket.servicio_id,
-        "sede_id": ticket.sede_id,
-        "notas": ticket.notas,
-        "hora_creacion": ticket.hora_creacion,
-        "hora_llamado": ticket.hora_llamado,
-        "hora_cierre": ticket.hora_cierre,
-        "cliente_id": ticket.cliente_id,
-        "cita_id": ticket.cita_id,
-        "puesto_nombre": ticket.puesto_nombre or "",
-        "servicio_nombre": servicio.nombre,
-    }
 
 
 # ============================================================
@@ -105,6 +79,7 @@ def get_tickets_sede(sede_id: str, db: Session = Depends(get_db)):
     for ticket, servicio_nombre in rows:
         data = ticket.__dict__.copy()
         data["servicio_nombre"] = servicio_nombre
+        data["puesto_nombre"] = ticket.puesto_nombre or ""
         resultado.append(data)
     return resultado
 
@@ -128,8 +103,35 @@ def get_tickets_estado(sede_id: str, estado: str, db: Session = Depends(get_db))
     for ticket, servicio_nombre in rows:
         data = ticket.__dict__.copy()
         data["servicio_nombre"] = servicio_nombre
+        data["puesto_nombre"] = ticket.puesto_nombre or ""
         resultado.append(data)
     return resultado
+
+
+# ============================================================
+# OBTENER TICKET POR ID
+# ============================================================
+@router.get("/{ticket_id}")
+def get_ticket(ticket_id: str, db: Session = Depends(get_db)):
+    ticket = db.query(models.Ticket).filter(models.Ticket.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket no encontrado")
+    servicio = db.query(models.Servicio).filter(models.Servicio.id == ticket.servicio_id).first()
+    return {
+        "id": ticket.id,
+        "codigo": ticket.codigo,
+        "estado": ticket.estado,
+        "servicio_id": ticket.servicio_id,
+        "sede_id": ticket.sede_id,
+        "notas": ticket.notas,
+        "hora_creacion": ticket.hora_creacion,
+        "hora_llamado": ticket.hora_llamado,
+        "hora_cierre": ticket.hora_cierre,
+        "cliente_id": ticket.cliente_id,
+        "cita_id": ticket.cita_id,
+        "puesto_nombre": ticket.puesto_nombre or "",
+        "servicio_nombre": servicio.nombre,
+    }
 
 
 # ============================================================
@@ -157,6 +159,7 @@ def llamar_ticket(
     servicio = db.query(models.Servicio).filter(models.Servicio.id == ticket.servicio_id).first()
     data = ticket.__dict__.copy()
     data["servicio_nombre"] = servicio.nombre
+    data["puesto_nombre"] = ticket.puesto_nombre or ""
     return data
 
 
@@ -178,6 +181,7 @@ def cerrar_ticket(ticket_id: str, db: Session = Depends(get_db)):
     servicio = db.query(models.Servicio).filter(models.Servicio.id == ticket.servicio_id).first()
     data = ticket.__dict__.copy()
     data["servicio_nombre"] = servicio.nombre
+    data["puesto_nombre"] = ticket.puesto_nombre or ""
     return data
 
 
@@ -225,7 +229,6 @@ async def ticket_ws(websocket: WebSocket, ticket_id: str):
                 "servicio_nombre": servicio_nombre,
             }
 
-            # Solo enviar si cambió el estado
             if payload["estado"] != last_estado:
                 await websocket.send_json(payload)
                 last_estado = payload["estado"]
