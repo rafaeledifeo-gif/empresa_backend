@@ -76,10 +76,8 @@ def get_ticket(ticket_id: str, db: Session = Depends(get_db)):
     if not row:
         raise HTTPException(status_code=404, detail="Ticket no encontrado")
     ticket, servicio_nombre = row
-    db.refresh(ticket)
     data = ticket.__dict__.copy()
     data["servicio_nombre"] = servicio_nombre
-    data["puesto_nombre"] = ticket.puesto_nombre or ""
     return data
 
 
@@ -96,12 +94,10 @@ def get_tickets_sede(sede_id: str, db: Session = Depends(get_db)):
         .all()
     )
     resultado = []
-        for ticket, servicio_nombre in rows:
+    for ticket, servicio_nombre in rows:
         data = ticket.__dict__.copy()
         data["servicio_nombre"] = servicio_nombre
         resultado.append(data)
-        db.refresh(ticket)
-        data["puesto_nombre"] = ticket.puesto_nombre or ""
     return resultado
 
 
@@ -236,4 +232,3 @@ async def ticket_ws(websocket: WebSocket, ticket_id: str):
         pass
     finally:
         db.close()
-
