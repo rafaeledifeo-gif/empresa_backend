@@ -71,6 +71,7 @@ def get_ticket(ticket_id: str, db: Session = Depends(get_db)):
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket no encontrado")
     servicio = db.query(models.Servicio).filter(models.Servicio.id == ticket.servicio_id).first()
+    print(f"DEBUG puesto_nombre: {ticket.puesto_nombre}")
     return {
         "id": ticket.id,
         "codigo": ticket.codigo,
