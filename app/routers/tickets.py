@@ -63,22 +63,29 @@ def crear_ticket(data: schemas.TicketCreate, db: Session = Depends(get_db)):
 
 
 # ============================================================
-# OBTENER TICKET POR ID  ← NUEVO
+# OBTENER TICKET POR ID
 # ============================================================
 @router.get("/{ticket_id}", response_model=schemas.TicketOut)
 def get_ticket(ticket_id: str, db: Session = Depends(get_db)):
-    row = (
-        db.query(models.Ticket, models.Servicio.nombre.label("servicio_nombre"))
-        .join(models.Servicio, models.Ticket.servicio_id == models.Servicio.id)
-        .filter(models.Ticket.id == ticket_id)
-        .first()
-    )
-    if not row:
+    ticket = db.query(models.Ticket).filter(models.Ticket.id == ticket_id).first()
+    if not ticket:
         raise HTTPException(status_code=404, detail="Ticket no encontrado")
-    ticket, servicio_nombre = row
-    data = ticket.__dict__.copy()
-    data["servicio_nombre"] = servicio_nombre
-    return data
+    servicio = db.query(models.Servicio).filter(models.Servicio.id == ticket.servicio_id).first()
+    return {
+        "id": ticket.id,
+        "codigo": ticket.codigo,
+        "estado": ticket.estado,
+        "servicio_id": ticket.servicio_id,
+        "sede_id": ticket.sede_id,
+        "notas": ticket.notas,
+        "hora_creacion": ticket.hora_creacion,
+        "hora_llamado": ticket.hora_llamado,
+        "hora_cierre": ticket.hora_cierre,
+        "cliente_id": ticket.cliente_id,
+        "cita_id": ticket.cita_id,
+        "puesto_nombre": ticket.puesto_nombre or "",
+        "servicio_nombre": servicio.nombre,
+    }
 
 
 # ============================================================
