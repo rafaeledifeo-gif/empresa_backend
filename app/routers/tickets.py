@@ -76,8 +76,10 @@ def get_ticket(ticket_id: str, db: Session = Depends(get_db)):
     if not row:
         raise HTTPException(status_code=404, detail="Ticket no encontrado")
     ticket, servicio_nombre = row
+    db.refresh(ticket)
     data = ticket.__dict__.copy()
     data["servicio_nombre"] = servicio_nombre
+    data["puesto_nombre"] = ticket.puesto_nombre or ""
     return data
 
 
