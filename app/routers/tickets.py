@@ -96,11 +96,11 @@ def get_tickets_sede(sede_id: str, db: Session = Depends(get_db)):
         .all()
     )
     resultado = []
-    for ticket, servicio_nombre in rows:
+        for ticket, servicio_nombre in rows:
         data = ticket.__dict__.copy()
         data["servicio_nombre"] = servicio_nombre
         resultado.append(data)
-    db.refresh(ticket)
+        db.refresh(ticket)
         data["puesto_nombre"] = ticket.puesto_nombre or ""
     return resultado
 
