@@ -100,6 +100,8 @@ def get_tickets_sede(sede_id: str, db: Session = Depends(get_db)):
         data = ticket.__dict__.copy()
         data["servicio_nombre"] = servicio_nombre
         resultado.append(data)
+	db.refresh(ticket)
+    	data["puesto_nombre"] = ticket.puesto_nombre or ""
     return resultado
 
 
