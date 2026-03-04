@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
+from fastapi.responses import StreamingResponse
+import io
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from datetime import datetime, timedelta, date
@@ -17,6 +19,142 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+@router.get("/nivel-servicio/{sede_id}/exportar-excel")
+def exportar_excel_nivel_servicio(
+    sede_id: str,
+    fecha_inicio: Optional[str] = Query(None),
+    fecha_fin: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+    except ImportError:
+        return Response(content="openpyxl no instalado", status_code=500)
+
+    # Reusar lógica del reporte
+    if fecha_inicio and fecha_fin:
+        fi = datetime.strptime(fecha_inicio, "%Y-%m-%d")
+        ff = datetime.strptime(fecha_fin, "%Y-%m-%d") + timedelta(days=1)
+    else:
+        ff = datetime.now()
+        fi = ff - timedelta(days=30)
+
+    tickets = (
+        db.query(models.Ticket)
+        .filter(models.Ticket.sede_id == sede_id, models.Ticket.hora_creacion >= fi, models.Ticket.hora_creacion < ff)
+        .all()
+    )
+    servicios = db.query(models.Servicio).filter(models.Servicio.sede_id == sede_id, models.Servicio.activo == True).all()
+    metas_rows = db.execute(
+        text("SELECT servicio_id, meta_espera, meta_atencion FROM metas_servicio_sede WHERE sede_id = :sid"),
+        {"sid": sede_id}
+    ).fetchall()
+    metas_map = {r[0]: {"meta_espera": r[1], "meta_atencion": r[2]} for r in metas_rows}
+
+    cliente_ids = list(set(t.cliente_id for t in tickets if t.cliente_id))
+    clientes_map = {}
+    if cliente_ids:
+        clientes = db.query(models.Cliente).filter(models.Cliente.id.in_(cliente_ids)).all()
+        clientes_map = {c.id: f"{c.nombre} {c.apellido or ''}".strip() for c in clientes}
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Nivel de Servicio"
+
+    # Estilos
+    verde = PatternFill("solid", fgColor="1B5E20")
+    verde_claro = PatternFill("solid", fgColor="E8F5E9")
+    gris = PatternFill("solid", fgColor="F5F5F5")
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    titulo_font = Font(bold=True, size=14, color="1B5E20")
+    thin = Side(style="thin", color="CCCCCC")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    # Título
+    ws.merge_cells("A1:I1")
+    ws["A1"] = f"Reporte de Nivel de Servicio — {fi.strftime('%d/%m/%Y')} al {(ff - timedelta(days=1)).strftime('%d/%m/%Y')}"
+    ws["A1"].font = titulo_font
+    ws["A1"].alignment = Alignment(horizontal="center")
+    ws.row_dimensions[1].height = 30
+
+    # Encabezados
+    headers = ["Servicio", "Volumen", "Espera Real (min)", "Meta Espera", "% Cumpl. Espera", "Atención Real (min)", "Meta Atención", "% Cumpl. Atención", "Nivel Servicio"]
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=3, column=col, value=h)
+        cell.font = header_font
+        cell.fill = verde
+        cell.alignment = Alignment(horizontal="center")
+        cell.border = border
+
+    # Datos por servicio
+    row = 4
+    for svc in servicios:
+        ts = [t for t in tickets if t.servicio_id == svc.id]
+        atendidos = [t for t in ts if t.estado == "cerrado"]
+        esperas = [(t.hora_llamado - t.hora_creacion).total_seconds() / 60 for t in ts if t.hora_llamado and t.hora_creacion]
+        atenciones = [(t.hora_cierre - t.hora_llamado).total_seconds() / 60 for t in atendidos if t.hora_cierre and t.hora_llamado]
+        prom_espera = round(sum(esperas) / len(esperas), 1) if esperas else None
+        prom_atencion = round(sum(atenciones) / len(atenciones), 1) if atenciones else None
+        meta = metas_map.get(svc.id, {})
+        meta_espera = meta.get("meta_espera", 15)
+        meta_atencion = meta.get("meta_atencion", 20)
+        cumpl_e = round(sum(1 for e in esperas if e <= meta_espera) / len(esperas) * 100, 1) if esperas else None
+        cumpl_a = round(sum(1 for a in atenciones if a <= meta_atencion) / len(atenciones) * 100, 1) if atenciones else None
+        nivel = round(cumpl_e * 0.6 + cumpl_a * 0.4, 1) if cumpl_e and cumpl_a else cumpl_e
+
+        fill = gris if row % 2 == 0 else PatternFill("solid", fgColor="FFFFFF")
+        vals = [svc.nombre, len(ts), prom_espera or "N/D", meta_espera, f"{cumpl_e}%" if cumpl_e else "N/D",
+                prom_atencion or "N/D", meta_atencion, f"{cumpl_a}%" if cumpl_a else "N/D", f"{nivel}%" if nivel else "N/D"]
+        for col, val in enumerate(vals, 1):
+            cell = ws.cell(row=row, column=col, value=val)
+            cell.fill = fill
+            cell.alignment = Alignment(horizontal="center" if col > 1 else "left")
+            cell.border = border
+        row += 1
+
+    # Hoja detalle tickets
+    ws2 = wb.create_sheet("Detalle Tickets")
+    headers2 = ["Código", "Cliente", "Servicio", "Estado", "Espera (min)", "Atención (min)", "Fecha"]
+    for col, h in enumerate(headers2, 1):
+        cell = ws2.cell(row=1, column=col, value=h)
+        cell.font = header_font
+        cell.fill = verde
+        cell.alignment = Alignment(horizontal="center")
+        cell.border = border
+
+    for i, t in enumerate(tickets, 2):
+        espera = round((t.hora_llamado - t.hora_creacion).total_seconds() / 60, 1) if t.hora_llamado else None
+        atencion = round((t.hora_cierre - t.hora_llamado).total_seconds() / 60, 1) if t.hora_cierre and t.hora_llamado else None
+        svc_nombre = next((s.nombre for s in servicios if s.id == t.servicio_id), "")
+        cliente = clientes_map.get(t.cliente_id, "") if t.cliente_id else "Anónimo"
+        fill = gris if i % 2 == 0 else PatternFill("solid", fgColor="FFFFFF")
+        vals = [t.codigo, cliente, svc_nombre, t.estado, espera or "N/D", atencion or "N/D", t.hora_creacion.strftime("%d/%m/%Y %H:%M")]
+        for col, val in enumerate(vals, 1):
+            cell = ws2.cell(row=i, column=col, value=val)
+            cell.fill = fill
+            cell.alignment = Alignment(horizontal="center" if col > 1 else "left")
+            cell.border = border
+
+    # Ajustar anchos
+    for ws_sheet in [ws, ws2]:
+        for col in ws_sheet.columns:
+            max_len = max((len(str(cell.value or "")) for cell in col), default=0)
+            ws_sheet.column_dimensions[get_column_letter(col[0].column)].width = min(max_len + 4, 40)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    filename = f"reporte_nivel_servicio_{fi.strftime('%Y%m%d')}_{(ff-timedelta(days=1)).strftime('%Y%m%d')}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
 
 
 @router.get("/nivel-servicio/{sede_id}")
@@ -42,6 +180,13 @@ def reporte_nivel_servicio(
         )
         .all()
     )
+
+    # Cargar nombres de clientes
+    cliente_ids = list(set(t.cliente_id for t in tickets if t.cliente_id))
+    clientes_map = {}
+    if cliente_ids:
+        clientes = db.query(models.Cliente).filter(models.Cliente.id.in_(cliente_ids)).all()
+        clientes_map = {c.id: f"{c.nombre} {c.apellido or ''}".strip() for c in clientes}
 
     servicios = (
         db.query(models.Servicio)
@@ -92,6 +237,17 @@ def reporte_nivel_servicio(
         elif cumpl_espera is not None:
             nivel = cumpl_espera
 
+        tickets_con_cliente = [
+            {
+                "codigo": t.codigo,
+                "cliente_nombre": clientes_map.get(t.cliente_id, "") if t.cliente_id else "",
+                "espera": round((t.hora_llamado - t.hora_creacion).total_seconds() / 60, 1) if t.hora_llamado else None,
+                "atencion": round((t.hora_cierre - t.hora_llamado).total_seconds() / 60, 1) if t.hora_cierre and t.hora_llamado else None,
+                "estado": t.estado,
+            }
+            for t in ts
+        ]
+
         servicios_data.append({
             "servicio_id": svc.id,
             "servicio_nombre": svc.nombre,
@@ -106,6 +262,7 @@ def reporte_nivel_servicio(
             "desviacion_atencion": round(prom_atencion - meta_atencion, 1) if prom_atencion else None,
             "cumplimiento_atencion": cumpl_atencion,
             "nivel_servicio": nivel,
+            "tickets": tickets_con_cliente,
         })
 
     total_volumen = sum(s["volumen"] for s in servicios_data)
@@ -183,6 +340,13 @@ def reporte_citas_programadas(
         .all()
     )
 
+    # Cargar nombres de clientes
+    cliente_ids_citas = list(set(c.cliente_id for c, _ in citas if c.cliente_id))
+    clientes_map_citas = {}
+    if cliente_ids_citas:
+        clientes_citas = db.query(models.Cliente).filter(models.Cliente.id.in_(cliente_ids_citas)).all()
+        clientes_map_citas = {c.id: f"{c.nombre} {c.apellido or ''}".strip() for c in clientes_citas}
+
     cal_rows = db.execute(
         text("SELECT id FROM calendarios WHERE sede_id = :sid AND activo = true"),
         {"sid": sede_id}
@@ -218,6 +382,16 @@ def reporte_citas_programadas(
             "capacidad": cap_dia,
             "ocupacion": ocup,
             "riesgo": "rojo" if ocup >= 85 else "amarillo" if ocup >= 70 else "verde",
+            "detalle_citas": [
+                {
+                    "id": c.id,
+                    "hora": str(c.hora)[:5],
+                    "cliente_nombre": clientes_map_citas.get(c.cliente_id, "Anónimo"),
+                    "servicio_nombre": next((sn for cc, sn in citas if cc.id == c.id), ""),
+                    "estado": c.estado,
+                }
+                for c in citas_dia
+            ],
         }
 
     servicios = (
