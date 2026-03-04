@@ -48,6 +48,7 @@ def crear_ticket(data: schemas.TicketCreate, db: Session = Depends(get_db)):
         notas=data.notas,
         estado="pendiente",
         sede_id=data.sede_id,
+        cliente_id=getattr(data, 'cliente_id', None),
     )
 
     servicio.contador_actual += 1
