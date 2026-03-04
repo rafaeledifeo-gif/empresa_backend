@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 from ..database import SessionLocal
 from .. import models, schemas
+from sqlalchemy import func
 import uuid
 import asyncio
 
@@ -75,11 +76,19 @@ def get_tickets_sede(sede_id: str, db: Session = Depends(get_db)):
         .order_by(models.Ticket.hora_creacion.asc())
         .all()
     )
+    # Cargar nombres de clientes
+    cliente_ids = list(set(t.cliente_id for t, _ in rows if t.cliente_id))
+    clientes_map = {}
+    if cliente_ids:
+        clientes = db.query(models.Cliente).filter(models.Cliente.id.in_(cliente_ids)).all()
+        clientes_map = {c.id: f"{c.nombre} {c.apellido}".strip() if c.apellido else c.nombre for c in clientes}
+
     resultado = []
     for ticket, servicio_nombre in rows:
         data = ticket.__dict__.copy()
         data["servicio_nombre"] = servicio_nombre
         data["puesto_nombre"] = ticket.puesto_nombre or ""
+        data["cliente_nombre"] = clientes_map.get(ticket.cliente_id, "") if ticket.cliente_id else ""
         resultado.append(data)
     return resultado
 
