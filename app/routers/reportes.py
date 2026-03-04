@@ -107,7 +107,7 @@ def exportar_excel_nivel_servicio(
         nivel = round(cumpl_e * 0.6 + cumpl_a * 0.4, 1) if cumpl_e and cumpl_a else cumpl_e
 
         fill = gris if row % 2 == 0 else PatternFill("solid", fgColor="FFFFFF")
-        vals = [svf"{c.nombre} {c.apellido}".strip() if c.apellido else c.nombre, len(ts), prom_espera or "N/D", meta_espera, f"{cumpl_e}%" if cumpl_e else "N/D",
+        vals = [svc.nombre, len(ts), prom_espera or "N/D", meta_espera, f"{cumpl_e}%" if cumpl_e else "N/D",
                 prom_atencion or "N/D", meta_atencion, f"{cumpl_a}%" if cumpl_a else "N/D", f"{nivel}%" if nivel else "N/D"]
         for col, val in enumerate(vals, 1):
             cell = ws.cell(row=row, column=col, value=val)
@@ -250,7 +250,7 @@ def reporte_nivel_servicio(
 
         servicios_data.append({
             "servicio_id": svc.id,
-            "servicio_nombre": svf"{c.nombre} {c.apellido}".strip() if c.apellido else c.nombre,
+            "servicio_nombre": svc.nombre,
             "volumen": len(ts),
             "atendidos": len(atendidos),
             "espera_real": prom_espera,
@@ -407,7 +407,7 @@ def reporte_citas_programadas(
         carga_diaria = round(len(citas_svc) / 7, 1)
         servicios_data.append({
             "servicio_id": svc.id,
-            "servicio_nombre": svf"{c.nombre} {c.apellido}".strip() if c.apellido else c.nombre,
+            "servicio_nombre": svc.nombre,
             "citas_programadas": len(citas_svc),
             "capacidad_disponible": capacidad_total,
             "ocupacion": ocupacion_svc,
