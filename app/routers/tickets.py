@@ -81,7 +81,7 @@ def get_tickets_sede(sede_id: str, db: Session = Depends(get_db)):
     clientes_map = {}
     if cliente_ids:
         clientes = db.query(models.Cliente).filter(models.Cliente.id.in_(cliente_ids)).all()
-        clientes_map = {c.id: f"{c.nombre} {c.apellido}".strip() if c.apellido else c.nombre for c in clientes}
+        clientes_map = {c.id: f"{c.nombre} {getattr(c, 'apellido', '') or ''}".strip() for c in clientes}
 
     resultado = []
     for ticket, servicio_nombre in rows:
