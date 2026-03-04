@@ -59,7 +59,7 @@ def exportar_excel_nivel_servicio(
     clientes_map = {}
     if cliente_ids:
         clientes = db.query(models.Cliente).filter(models.Cliente.id.in_(cliente_ids)).all()
-        clientes_map = {c.id: f"{c.nombre} {c.apellido or ''}".strip() for c in clientes}
+        clientes_map = {c.id: f"{c.nombre} {c.apellido}".strip() if c.apellido else c.nombre for c in clientes}
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -107,7 +107,7 @@ def exportar_excel_nivel_servicio(
         nivel = round(cumpl_e * 0.6 + cumpl_a * 0.4, 1) if cumpl_e and cumpl_a else cumpl_e
 
         fill = gris if row % 2 == 0 else PatternFill("solid", fgColor="FFFFFF")
-        vals = [svc.nombre, len(ts), prom_espera or "N/D", meta_espera, f"{cumpl_e}%" if cumpl_e else "N/D",
+        vals = [svf"{c.nombre} {c.apellido}".strip() if c.apellido else c.nombre, len(ts), prom_espera or "N/D", meta_espera, f"{cumpl_e}%" if cumpl_e else "N/D",
                 prom_atencion or "N/D", meta_atencion, f"{cumpl_a}%" if cumpl_a else "N/D", f"{nivel}%" if nivel else "N/D"]
         for col, val in enumerate(vals, 1):
             cell = ws.cell(row=row, column=col, value=val)
@@ -186,7 +186,7 @@ def reporte_nivel_servicio(
     clientes_map = {}
     if cliente_ids:
         clientes = db.query(models.Cliente).filter(models.Cliente.id.in_(cliente_ids)).all()
-        clientes_map = {c.id: f"{c.nombre} {c.apellido or ''}".strip() for c in clientes}
+        clientes_map = {c.id: f"{c.nombre} {c.apellido}".strip() if c.apellido else c.nombre for c in clientes}
 
     servicios = (
         db.query(models.Servicio)
@@ -250,7 +250,7 @@ def reporte_nivel_servicio(
 
         servicios_data.append({
             "servicio_id": svc.id,
-            "servicio_nombre": svc.nombre,
+            "servicio_nombre": svf"{c.nombre} {c.apellido}".strip() if c.apellido else c.nombre,
             "volumen": len(ts),
             "atendidos": len(atendidos),
             "espera_real": prom_espera,
@@ -345,7 +345,7 @@ def reporte_citas_programadas(
     clientes_map_citas = {}
     if cliente_ids_citas:
         clientes_citas = db.query(models.Cliente).filter(models.Cliente.id.in_(cliente_ids_citas)).all()
-        clientes_map_citas = {c.id: f"{c.nombre} {c.apellido or ''}".strip() for c in clientes_citas}
+        clientes_map_citas = {c.id: f"{c.nombre} {c.apellido}".strip() if c.apellido else c.nombre for c in clientes_citas}
 
     cal_rows = db.execute(
         text("SELECT id FROM calendarios WHERE sede_id = :sid AND activo = true"),
@@ -407,7 +407,7 @@ def reporte_citas_programadas(
         carga_diaria = round(len(citas_svc) / 7, 1)
         servicios_data.append({
             "servicio_id": svc.id,
-            "servicio_nombre": svc.nombre,
+            "servicio_nombre": svf"{c.nombre} {c.apellido}".strip() if c.apellido else c.nombre,
             "citas_programadas": len(citas_svc),
             "capacidad_disponible": capacidad_total,
             "ocupacion": ocupacion_svc,

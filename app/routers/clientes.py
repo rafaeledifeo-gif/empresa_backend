@@ -35,6 +35,7 @@ def get_db():
 
 class ClienteCreate(BaseModel):
     nombre: str
+    apellido: Optional[str] = None
     email: Optional[str] = None
     password: str
     numero_identificacion: Optional[str] = None
@@ -42,6 +43,7 @@ class ClienteCreate(BaseModel):
 class ClienteOut(BaseModel):
     id: str
     nombre: str
+    apellido: Optional[str] = None
     email: Optional[str] = None
     numero_identificacion: Optional[str] = None
     class Config:
@@ -53,7 +55,13 @@ class ClienteLogin(BaseModel):
     password: str
 
 def cliente_json(c):
-    return {"id": c.id, "nombre": c.nombre, "email": c.email, "numero_identificacion": c.numero_identificacion}
+    return {
+        "id": c.id,
+        "nombre": c.nombre,
+        "apellido": c.apellido,
+        "email": c.email,
+        "numero_identificacion": c.numero_identificacion,
+    }
 
 @router.post("/clientes/")
 def registrar_cliente(data: ClienteCreate, db: Session = Depends(get_db)):
@@ -66,6 +74,7 @@ def registrar_cliente(data: ClienteCreate, db: Session = Depends(get_db)):
     nuevo = models.Cliente(
         id=str(uuid.uuid4()),
         nombre=data.nombre,
+        apellido=data.apellido,
         email=data.email,
         numero_identificacion=data.numero_identificacion,
         hashed_password=hash_password(data.password),
