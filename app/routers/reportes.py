@@ -59,7 +59,7 @@ def exportar_excel_nivel_servicio(
     clientes_map = {}
     if cliente_ids:
         clientes = db.query(models.Cliente).filter(models.Cliente.id.in_(cliente_ids)).all()
-        clientes_map = {c.id: f"{c.nombre} {c.apellido}".strip() if c.apellido else c.nombre for c in clientes}
+        clientes_map = {c.id: f"{c.nombre} {getattr(c, 'apellido', '') or ''}".strip() for c in clientes}
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -186,7 +186,7 @@ def reporte_nivel_servicio(
     clientes_map = {}
     if cliente_ids:
         clientes = db.query(models.Cliente).filter(models.Cliente.id.in_(cliente_ids)).all()
-        clientes_map = {c.id: f"{c.nombre} {c.apellido}".strip() if c.apellido else c.nombre for c in clientes}
+        clientes_map = {c.id: f"{c.nombre} {getattr(c, 'apellido', '') or ''}".strip() for c in clientes}
 
     servicios = (
         db.query(models.Servicio)
@@ -345,7 +345,7 @@ def reporte_citas_programadas(
     clientes_map_citas = {}
     if cliente_ids_citas:
         clientes_citas = db.query(models.Cliente).filter(models.Cliente.id.in_(cliente_ids_citas)).all()
-        clientes_map_citas = {c.id: f"{c.nombre} {c.apellido}".strip() if c.apellido else c.nombre for c in clientes_citas}
+        clientes_map_citas = {c.id: f"{c.nombre} {getattr(c, 'apellido', '') or ''}".strip() for c in clientes_citas}
 
     cal_rows = db.execute(
         text("SELECT id FROM calendarios WHERE sede_id = :sid AND activo = true"),
