@@ -58,7 +58,7 @@ def cliente_json(c):
     return {
         "id": c.id,
         "nombre": c.nombre,
-        "apellido": c.apellido,
+        "apellido": getattr(c, 'apellido', None),
         "email": c.email,
         "numero_identificacion": c.numero_identificacion,
     }
