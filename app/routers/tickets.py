@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Body
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timedelta
 from ..database import SessionLocal
 from .. import models, schemas
 from sqlalchemy import func
@@ -206,6 +206,98 @@ def eliminar_ticket(ticket_id: str, db: Session = Depends(get_db)):
     db.delete(ticket)
     db.commit()
     return {"mensaje": "Ticket eliminado correctamente"}
+
+
+# ============================================================
+# ACTUALIZAR NOTAS DE UN TICKET
+# ============================================================
+@router.put("/{ticket_id}/notas")
+def actualizar_notas(
+    ticket_id: str,
+    notas: str = Body(..., embed=True),
+    db: Session = Depends(get_db),
+):
+    ticket = db.query(models.Ticket).filter(models.Ticket.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket no encontrado")
+    ticket.notas = notas
+    db.commit()
+    db.refresh(ticket)
+    servicio = db.query(models.Servicio).filter(models.Servicio.id == ticket.servicio_id).first()
+    data = ticket.__dict__.copy()
+    data["servicio_nombre"] = servicio.nombre if servicio else ""
+    data["puesto_nombre"] = ticket.puesto_nombre or ""
+    return data
+
+
+# ============================================================
+# TRANSFERIR TICKET A OTRO SERVICIO
+# Mantiene el código original. Lo inserta en la posición
+# indicada de la cola destino (por defecto posición 3).
+# ============================================================
+@router.post("/{ticket_id}/transferir")
+def transferir_ticket(
+    ticket_id: str,
+    nuevo_servicio_id: str,
+    posicion: int = 3,
+    db: Session = Depends(get_db),
+):
+    ticket = db.query(models.Ticket).filter(models.Ticket.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket no encontrado")
+    if ticket.estado not in ("pendiente", "llamado"):
+        raise HTTPException(status_code=400, detail="Solo se pueden transferir tickets pendientes o llamados")
+
+    nuevo_servicio = db.query(models.Servicio).filter(models.Servicio.id == nuevo_servicio_id).first()
+    if not nuevo_servicio:
+        raise HTTPException(status_code=404, detail="Servicio destino no encontrado")
+
+    # Obtener cola pendiente del servicio destino (sin incluir el ticket actual)
+    tickets_destino = (
+        db.query(models.Ticket)
+        .filter(
+            models.Ticket.servicio_id == nuevo_servicio_id,
+            models.Ticket.estado == "pendiente",
+            models.Ticket.id != ticket_id,
+        )
+        .order_by(models.Ticket.hora_creacion.asc())
+        .all()
+    )
+
+    n = len(tickets_destino)
+    target_idx = posicion - 1  # 0-based
+
+    if n == 0:
+        nueva_hora = datetime.utcnow()
+    elif target_idx >= n:
+        nueva_hora = tickets_destino[-1].hora_creacion + timedelta(seconds=1)
+    elif target_idx <= 0:
+        nueva_hora = tickets_destino[0].hora_creacion - timedelta(seconds=1)
+    else:
+        antes   = tickets_destino[target_idx - 1].hora_creacion
+        despues = tickets_destino[target_idx].hora_creacion
+        diff_ms = (despues - antes).total_seconds() * 1000
+        if diff_ms > 1:
+            nueva_hora = antes + timedelta(milliseconds=diff_ms / 2)
+        else:
+            nueva_hora = antes + timedelta(milliseconds=1)
+            for t in tickets_destino[target_idx:]:
+                t.hora_creacion = t.hora_creacion + timedelta(seconds=1)
+
+    ticket.servicio_id   = nuevo_servicio_id
+    ticket.sede_id       = nuevo_servicio.sede_id
+    ticket.estado        = "pendiente"
+    ticket.hora_creacion = nueva_hora
+    ticket.puesto_nombre = None
+    ticket.hora_llamado  = None
+
+    db.commit()
+    db.refresh(ticket)
+
+    data = ticket.__dict__.copy()
+    data["servicio_nombre"] = nuevo_servicio.nombre
+    data["puesto_nombre"]   = ""
+    return data
 
 
 # ============================================================
