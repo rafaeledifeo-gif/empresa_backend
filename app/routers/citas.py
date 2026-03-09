@@ -94,6 +94,37 @@ def get_citas_cliente(cliente_id: str, db: Session = Depends(get_db)):
     return resultado
 
 # ============================================================
+# OBTENER CITAS DE HOY PARA UN CLIENTE EN UNA SEDE (KIOSCO)
+# ============================================================
+
+@router.get("/hoy/{cliente_id}/{sede_id}", response_model=list[schemas.CitaOut])
+def get_citas_hoy_kiosco(cliente_id: str, sede_id: str, db: Session = Depends(get_db)):
+    from datetime import date
+    hoy = date.today().isoformat()
+    rows = (
+        db.query(models.Cita, models.Servicio.nombre.label("servicio_nombre"), models.Cliente.nombre.label("cliente_nombre"))
+        .join(models.Servicio, models.Cita.servicio_id == models.Servicio.id)
+        .join(models.Cliente, models.Cita.cliente_id == models.Cliente.id)
+        .filter(
+            models.Cita.cliente_id == cliente_id,
+            models.Cita.sede_id == sede_id,
+            models.Cita.fecha == hoy,
+            models.Cita.estado == "agendada"
+        )
+        .order_by(models.Cita.hora.asc())
+        .all()
+    )
+
+    resultado = []
+    for cita, servicio_nombre, cliente_nombre in rows:
+        data = cita.__dict__.copy()
+        data["servicio_nombre"] = servicio_nombre
+        data["cliente_nombre"] = cliente_nombre
+        resultado.append(data)
+
+    return resultado
+
+# ============================================================
 # OBTENER CITAS DE UNA SEDE POR FECHA
 # ============================================================
 
@@ -156,7 +187,7 @@ def checkin_qr(qr_token: str, db: Session = Depends(get_db)):
 
 def _procesar_checkin(cita: models.Cita, metodo: str, db: Session):
     ahora = datetime.utcnow()
-    hora_cita = datetime.strptime(f"{cita.fecha} {cita.hora}", "%Y-%m-%d %H:%M")
+    hora_cita = datetime.strptime(f"{cita.fecha} {cita.hora}", "%Y-%m-%d %H:%M") - timedelta(hours=1)
     ventana_inicio = hora_cita - timedelta(minutes=20)
     ventana_fin = hora_cita + timedelta(minutes=20)
 
