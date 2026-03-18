@@ -20,6 +20,10 @@ class Ticket(Base):
     cliente_id = Column(String, ForeignKey("clientes.id"), nullable=True)
     cita_id = Column(String, ForeignKey("citas.id"), nullable=True)
 
+    # Canal de atención: "presencial" | "virtual"
+    tipo = Column(String, default="presencial")
+    sala_video_url = Column(String, nullable=True)
+
     servicio = relationship("Servicio")
     sede = relationship("Sede")
     cliente = relationship("Cliente")

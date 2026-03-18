@@ -217,9 +217,11 @@ class TicketBase(BaseModel):
     servicio_id: str
     notas: Optional[str] = None
     sede_id: str
+    tipo: Optional[str] = "presencial"       # "presencial" | "virtual"
+    sala_video_url: Optional[str] = None
 
 class TicketCreate(TicketBase):
-    pass
+    cliente_id: Optional[str] = None
 
 class TicketOut(TicketBase):
     id: str
@@ -231,6 +233,9 @@ class TicketOut(TicketBase):
     servicio_nombre: str
     cliente_id: Optional[str] = None
     cita_id: Optional[str] = None
+    puesto_nombre: Optional[str] = None
+    tipo: str = "presencial"
+    sala_video_url: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 # ============================================================

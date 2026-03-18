@@ -41,14 +41,23 @@ def crear_ticket(data: schemas.TicketCreate, db: Session = Depends(get_db)):
 
     codigo = f"{servicio.identificador_letra}-{servicio.contador_actual}"
 
+    # Generar sala de video si el ticket es virtual
+    ticket_id = str(uuid.uuid4())
+    tipo = getattr(data, 'tipo', None) or "presencial"
+    sala_video_url = None
+    if tipo == "virtual":
+        sala_video_url = f"https://meet.jit.si/nexto-{ticket_id[:10]}"
+
     ticket = models.Ticket(
-        id=str(uuid.uuid4()),
+        id=ticket_id,
         codigo=codigo,
         servicio_id=data.servicio_id,
         notas=data.notas,
         estado="pendiente",
         sede_id=data.sede_id,
         cliente_id=getattr(data, 'cliente_id', None),
+        tipo=tipo,
+        sala_video_url=sala_video_url,
     )
 
     servicio.contador_actual += 1
