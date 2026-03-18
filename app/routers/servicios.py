@@ -61,6 +61,7 @@ def crear_servicio(servicio: schemas.ServicioCreate, db: Session = Depends(get_d
         activo=True,
         tipo_servicio=servicio.tipo_servicio or "directo",
         calendario_id=servicio.calendario_id,
+        modalidad=servicio.modalidad or "presencial",
     )
 
     db.add(nuevo)
@@ -92,6 +93,7 @@ def actualizar_servicio(
     servicio.rango_fin = datos.rango_fin
     servicio.tipo_servicio = datos.tipo_servicio or "directo"
     servicio.calendario_id = datos.calendario_id
+    servicio.modalidad = datos.modalidad or "presencial"
 
     # Si viene el query param activo, también lo actualizamos
     if activo is not None:

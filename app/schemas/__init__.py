@@ -85,6 +85,7 @@ class ServicioBase(BaseModel):
     rango_fin: int
     tipo_servicio: Optional[str] = "directo"   # "directo" o "cita"
     calendario_id: Optional[str] = None
+    modalidad: Optional[str] = "presencial"    # "presencial" | "virtual" | "ambas"
 
 class ServicioCreate(ServicioBase):
     id: str
@@ -97,6 +98,7 @@ class ServicioUpdate(BaseModel):
     rango_fin: int
     tipo_servicio: Optional[str] = "directo"
     calendario_id: Optional[str] = None
+    modalidad: Optional[str] = "presencial"
     model_config = ConfigDict(from_attributes=True)
 
 class ServicioOut(ServicioBase):
@@ -106,6 +108,7 @@ class ServicioOut(ServicioBase):
     activo: bool
     tipo_servicio: str = "directo"
     calendario_id: Optional[str] = None
+    modalidad: str = "presencial"
     model_config = ConfigDict(from_attributes=True)
 
 class TurnoResponse(BaseModel):

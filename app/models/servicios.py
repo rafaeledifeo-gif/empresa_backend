@@ -30,6 +30,9 @@ class Servicio(Base):
     tipo_servicio = Column(String, default="directo")  # "directo" o "cita"
     calendario_id = Column(String, ForeignKey("calendarios.id"), nullable=True)
 
+    # Canal de atención: "presencial" | "virtual" | "ambas"
+    modalidad = Column(String, default="presencial")
+
     sede = relationship("Sede", back_populates="servicios")
     funciones = relationship(
         "Funcion",
