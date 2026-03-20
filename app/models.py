@@ -157,7 +157,8 @@ class Cliente(Base):
     id = Column(String, primary_key=True, index=True)
     nombre = Column(String, nullable=False)
     apellido = Column(String, nullable=True)
-    email = Column(String, unique=True, index=True)
+    email = Column(String, unique=True, nullable=True, index=True)
+    numero_identificacion = Column(String, unique=True, nullable=True, index=True)
     hashed_password = Column(String, nullable=False)
 
     fecha_creacion = Column(DateTime, server_default=func.now())
