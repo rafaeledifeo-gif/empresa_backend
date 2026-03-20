@@ -6,15 +6,13 @@ from typing import Optional
 import bcrypt
 import uuid
 
-from ..database import SessionLocal
+from ..database import get_db
 from .. import models
 
 router = APIRouter(tags=["Clientes"])
 
 CORS_HEADERS = {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "*",
-    "Access-Control-Allow-Methods": "*"
 }
 
 def hash_password(password: str) -> str:
@@ -25,13 +23,6 @@ def verify_password(plain: str, hashed: str) -> bool:
         return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
     except Exception:
         return False
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 class ClienteCreate(BaseModel):
     nombre: str
