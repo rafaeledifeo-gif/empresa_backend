@@ -31,6 +31,15 @@ def on_startup():
         migrations = [
             "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS apellido VARCHAR",
             "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS numero_identificacion VARCHAR",
+            # Tabla para horarios personalizados por día específico
+            """CREATE TABLE IF NOT EXISTS calendario_dias_especiales (
+                id VARCHAR PRIMARY KEY,
+                calendario_id VARCHAR NOT NULL REFERENCES calendarios(id),
+                fecha DATE NOT NULL,
+                config JSONB NOT NULL
+            )""",
+            """CREATE UNIQUE INDEX IF NOT EXISTS uix_cal_dia_esp
+               ON calendario_dias_especiales(calendario_id, fecha)""",
         ]
         for sql in migrations:
             try:

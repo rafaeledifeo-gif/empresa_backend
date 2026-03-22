@@ -7,6 +7,7 @@ from app.models.calendarios import (
     CalendarioFestivo,
     CalendarioBloqueo,
     CalendarioDisponibilidad,
+    CalendarioDiaEspecial,
 )
 import uuid
 
@@ -56,6 +57,63 @@ def excluir_bloqueos(db: Session, calendario_id: str, fecha: date, slots: list):
     return slots
 
 
+def _parse_time_str(val) -> time | None:
+    """Convierte '09:00' o '09:00:00' a time; None si inválido."""
+    if not val or not isinstance(val, str):
+        return None
+    try:
+        parts = val.split(":")
+        return time(int(parts[0]), int(parts[1]))
+    except Exception:
+        return None
+
+
+def _config_dict_a_bloques(cfg: dict) -> list:
+    """
+    Convierte el dict de config del frontend (manana_activo, tarde_activo, ...)
+    a una lista de objetos con los atributos necesarios para generar slots.
+    """
+    class BloqueSimple:
+        def __init__(self, hora_inicio, hora_fin, es_bloque, capacidad_maxima, duracion_cita):
+            self.hora_inicio = hora_inicio
+            self.hora_fin = hora_fin
+            self.es_bloque = es_bloque
+            self.capacidad_maxima = capacidad_maxima
+            self.duracion_cita = duracion_cita
+
+    bloques = []
+    for prefijo in ("manana", "tarde"):
+        if not cfg.get(f"{prefijo}_activo"):
+            continue
+        hi = _parse_time_str(cfg.get(f"{prefijo}_inicio"))
+        hf = _parse_time_str(cfg.get(f"{prefijo}_fin"))
+        if not hi or not hf:
+            continue
+        bloques.append(BloqueSimple(
+            hora_inicio=hi,
+            hora_fin=hf,
+            es_bloque=cfg.get(f"{prefijo}_es_bloque", False),
+            capacidad_maxima=cfg.get(f"{prefijo}_capacidad_maxima"),
+            duracion_cita=cfg.get(f"{prefijo}_duracion_cita"),
+        ))
+    return bloques
+
+
+def _slots_de_bloques(bloques: list) -> list:
+    """Genera lista de time slots a partir de una lista de BloqueSimple."""
+    slots = []
+    for b in bloques:
+        if not b.hora_inicio or not b.hora_fin:
+            continue
+        if b.es_bloque:
+            capacidad = b.capacidad_maxima or 1
+            for _ in range(capacidad):
+                slots.append(b.hora_inicio)
+        elif b.duracion_cita and b.duracion_cita > 0:
+            slots.extend(generar_slots_bloque(b.hora_inicio, b.hora_fin, b.duracion_cita))
+    return slots
+
+
 def generar_disponibilidades(
     db: Session,
     calendario_id: str,
@@ -80,11 +138,39 @@ def generar_disponibilidades(
         ).all()
     }
 
+    # Cargar días con horario especial (override individual de día)
+    dias_especiales = {
+        d.fecha: d.config
+        for d in db.query(CalendarioDiaEspecial).filter(
+            CalendarioDiaEspecial.calendario_id == calendario_id,
+            CalendarioDiaEspecial.fecha >= fecha_inicio,
+            CalendarioDiaEspecial.fecha <= fecha_fin,
+        ).all()
+    }
+
     actual = fecha_inicio
     nuevas = []
 
     while actual <= fecha_fin:
         dia_semana = actual.isoweekday()
+
+        # Días especiales (override manual): tienen su propia config
+        if actual in dias_especiales:
+            cfg = dias_especiales[actual]
+            bloques_esp = _config_dict_a_bloques(cfg)
+            if bloques_esp:
+                slots = _slots_de_bloques(bloques_esp)
+                slots = excluir_bloqueos(db, calendario_id, actual, slots)
+                for s in slots:
+                    nuevas.append(CalendarioDisponibilidad(
+                        id=str(uuid.uuid4()),
+                        calendario_id=calendario_id,
+                        fecha=actual,
+                        hora=s,
+                        disponible=True
+                    ))
+            actual += timedelta(days=1)
+            continue
 
         if dia_semana == 6 and not calendario.trabaja_sabado:
             actual += timedelta(days=1)
@@ -104,7 +190,16 @@ def generar_disponibilidades(
 
         slots = []
         for b in bloques:
-            if b.hora_inicio and b.hora_fin and b.duracion_cita and b.duracion_cita > 0:
+            if not b.hora_inicio or not b.hora_fin:
+                continue
+            if b.es_bloque:
+                # Modo "por turnos": crear (capacidad_maxima) slots a la hora de inicio
+                # Cada slot representa un cupo; múltiples personas pueden reservar la misma hora
+                capacidad = b.capacidad_maxima or 1
+                for _ in range(capacidad):
+                    slots.append(b.hora_inicio)
+            elif b.duracion_cita and b.duracion_cita > 0:
+                # Modo "por minutos": slots individuales por duración
                 slots.extend(
                     generar_slots_bloque(b.hora_inicio, b.hora_fin, b.duracion_cita)
                 )

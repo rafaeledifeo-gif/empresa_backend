@@ -12,6 +12,7 @@ from app.models.calendarios import (
     CalendarioFestivo,
     CalendarioBloqueo,
     CalendarioDisponibilidad,
+    CalendarioDiaEspecial,
 )
 from app.models.citas import Cita
 
@@ -292,6 +293,55 @@ def resumen_disponibilidades(
         actual += timedelta(days=1)
 
     return resultado
+
+
+# ============================================================
+# DÍAS ESPECIALES — GET: listar overrides de días individuales
+# ============================================================
+
+@router.get("/{calendario_id}/dias-especiales")
+def obtener_dias_especiales(calendario_id: str, db: Session = Depends(get_db)):
+    items = (
+        db.query(CalendarioDiaEspecial)
+        .filter(CalendarioDiaEspecial.calendario_id == calendario_id)
+        .all()
+    )
+    return [{"fecha": str(item.fecha), "config": item.config} for item in items]
+
+
+# ============================================================
+# DÍAS ESPECIALES — POST: reemplaza todos los overrides
+# ============================================================
+
+class DiaEspecialItem(BaseModel):
+    fecha: str          # "YYYY-MM-DD"
+    config: dict        # config completa del día (formato frontend)
+
+@router.post("/{calendario_id}/dias-especiales")
+def guardar_dias_especiales(
+    calendario_id: str,
+    data: list[DiaEspecialItem],
+    db: Session = Depends(get_db)
+):
+    # Reemplazar todos los overrides existentes
+    db.query(CalendarioDiaEspecial).filter(
+        CalendarioDiaEspecial.calendario_id == calendario_id
+    ).delete()
+
+    for item in data:
+        db.add(CalendarioDiaEspecial(
+            id=str(uuid.uuid4()),
+            calendario_id=calendario_id,
+            fecha=item.fecha,
+            config=item.config,
+        ))
+
+    db.commit()
+
+    # Regenerar disponibilidades aplicando los nuevos overrides
+    generar_disponibilidades_automaticas(db, calendario_id)
+
+    return {"status": "ok", "dias_guardados": len(data)}
 
 
 # ============================================================

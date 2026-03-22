@@ -1,4 +1,5 @@
 from sqlalchemy import Column, String, Integer, Boolean, Date, Time, ForeignKey, TIMESTAMP
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -66,3 +67,17 @@ class CalendarioDisponibilidad(Base):
     fecha = Column(Date, nullable=False)
     hora = Column(Time, nullable=False)
     disponible = Column(Boolean, default=True)
+
+
+class CalendarioDiaEspecial(Base):
+    """
+    Horario personalizado para un día específico del calendario.
+    Tiene precedencia sobre la configuración semanal base.
+    El campo config almacena el mismo formato que el frontend usa en _horariosDias.
+    """
+    __tablename__ = "calendario_dias_especiales"
+
+    id = Column(String, primary_key=True)
+    calendario_id = Column(String, ForeignKey("calendarios.id"), nullable=False)
+    fecha = Column(Date, nullable=False, index=True)
+    config = Column(JSONB, nullable=False)  # {manana_activo, manana_inicio, ..., tarde_activo, ...}

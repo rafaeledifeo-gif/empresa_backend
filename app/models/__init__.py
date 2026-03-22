@@ -22,6 +22,7 @@ from .calendarios import (
     CalendarioFestivo,
     CalendarioBloqueo,
     CalendarioDisponibilidad,
+    CalendarioDiaEspecial,
 )
 
 # 4. Depende de Servicio, Sede, Cliente
