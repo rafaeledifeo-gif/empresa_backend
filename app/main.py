@@ -25,7 +25,23 @@ app = FastAPI(debug=True)
 # ============================================================
 @app.on_event("startup")
 def on_startup():
-    pass
+    """Auto-migra columnas faltantes en tablas existentes."""
+    db = SessionLocal()
+    try:
+        migrations = [
+            "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS apellido VARCHAR",
+            "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS numero_identificacion VARCHAR",
+        ]
+        for sql in migrations:
+            try:
+                db.execute(text(sql))
+            except Exception as e:
+                print(f"Migration skipped: {e}")
+        db.commit()
+    except Exception as e:
+        print(f"Startup migration error: {e}")
+    finally:
+        db.close()
 
 # ============================================================
 # DEBUG (opcional)

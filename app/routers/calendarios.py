@@ -13,6 +13,7 @@ from app.models.calendarios import (
     CalendarioBloqueo,
     CalendarioDisponibilidad,
 )
+from app.models.citas import Cita
 
 from app.schemas.calendarios import (
     CalendarioCreate,
@@ -130,6 +131,15 @@ def eliminar_calendario(calendario_id: str, db: Session = Depends(get_db)):
     if not calendario:
         raise HTTPException(status_code=404, detail="Calendario no encontrado")
 
+    # Verificar si hay citas asociadas a este calendario
+    total_citas = db.query(Cita).filter(Cita.calendario_id == calendario_id).count()
+    if total_citas > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Este calendario tiene {total_citas} cita(s) registrada(s) y no puede eliminarse. "
+                   "Reasigne o cancele las citas antes de eliminar el calendario."
+        )
+
     # Borrar datos relacionados primero
     db.query(CalendarioDisponibilidad).filter(
         CalendarioDisponibilidad.calendario_id == calendario_id
@@ -241,6 +251,47 @@ def configurar_semana(
     generar_disponibilidades_automaticas(db, calendario_id)
 
     return {"status": "ok", "message": "Semana configurada correctamente"}
+
+
+# ============================================================
+# RESUMEN DE DISPONIBILIDAD SEMANAL (total vs disponibles por día)
+# ============================================================
+
+@router.get("/{calendario_id}/disponibilidades/resumen")
+def resumen_disponibilidades(
+    calendario_id: str,
+    fecha_inicio: date,
+    fecha_fin: date,
+    db: Session = Depends(get_db)
+):
+    from sqlalchemy import func, case as sa_case
+
+    rows = db.query(
+        CalendarioDisponibilidad.fecha,
+        func.count(CalendarioDisponibilidad.id).label("total"),
+        func.sum(
+            sa_case((CalendarioDisponibilidad.disponible == True, 1), else_=0)
+        ).label("disponibles"),
+    ).filter(
+        CalendarioDisponibilidad.calendario_id == calendario_id,
+        CalendarioDisponibilidad.fecha >= fecha_inicio,
+        CalendarioDisponibilidad.fecha <= fecha_fin,
+    ).group_by(CalendarioDisponibilidad.fecha).all()
+
+    # Construir mapa fecha → {total, disponibles}
+    resumen = {str(r.fecha): {"total": r.total, "disponibles": int(r.disponibles or 0)} for r in rows}
+
+    # Asegurar que todos los días del rango estén en la respuesta
+    resultado = []
+    actual = fecha_inicio
+    while actual <= fecha_fin:
+        key = str(actual)
+        info = resumen.get(key, {"total": 0, "disponibles": 0})
+        resultado.append({"fecha": key, **info})
+        from datetime import timedelta
+        actual += timedelta(days=1)
+
+    return resultado
 
 
 # ============================================================

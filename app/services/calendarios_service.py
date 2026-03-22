@@ -104,7 +104,7 @@ def generar_disponibilidades(
 
         slots = []
         for b in bloques:
-            if b.duracion_cita and b.hora_inicio and b.hora_fin:
+            if b.hora_inicio and b.hora_fin and b.duracion_cita and b.duracion_cita > 0:
                 slots.extend(
                     generar_slots_bloque(b.hora_inicio, b.hora_fin, b.duracion_cita)
                 )
