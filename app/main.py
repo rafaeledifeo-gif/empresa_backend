@@ -47,6 +47,32 @@ def on_startup():
             except Exception as e:
                 print(f"Migration skipped: {e}")
         db.commit()
+
+        # Sincronizar disponibilidades con citas existentes.
+        # Por cada cita activa (agendada/check_in/en_espera), marcar UN slot como ocupado.
+        try:
+            sync_sql = text("""
+                UPDATE calendario_disponibilidades cd
+                SET disponible = false
+                WHERE cd.id IN (
+                    SELECT DISTINCT ON (c.calendario_id, c.fecha, c.hora)
+                        cd2.id
+                    FROM citas c
+                    JOIN calendario_disponibilidades cd2
+                        ON cd2.calendario_id = c.calendario_id
+                        AND cd2.fecha = c.fecha::date
+                        AND cd2.hora = c.hora::time
+                        AND cd2.disponible = true
+                    WHERE c.estado IN ('agendada', 'check_in', 'en_espera')
+                )
+            """)
+            result = db.execute(sync_sql)
+            db.commit()
+            print(f">>> Sync disponibilidades: {result.rowcount} slots marcados como ocupados")
+        except Exception as e:
+            print(f"Sync disponibilidades error: {e}")
+            db.rollback()
+
     except Exception as e:
         print(f"Startup migration error: {e}")
     finally:

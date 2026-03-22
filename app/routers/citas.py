@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.orm import Session
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time as time_type
 from ..database import SessionLocal
 from .. import models, schemas
 import uuid
@@ -20,6 +20,64 @@ def get_db():
         db.close()
 
 # ============================================================
+# HELPERS — gestión de disponibilidad de slots
+# ============================================================
+
+def _hora_a_time(hora: str) -> time_type | None:
+    """Convierte '09:00' o '09:00:00' a datetime.time; None si inválido."""
+    try:
+        parts = hora.split(":")
+        return time_type(int(parts[0]), int(parts[1]))
+    except Exception:
+        return None
+
+
+def _marcar_slot_ocupado(db: Session, calendario_id: str, fecha: str, hora: str) -> bool:
+    """
+    Busca UN slot disponible=True en esa fecha/hora y lo marca como False.
+    Retorna True si encontró y marcó, False si no había cupo.
+    """
+    hora_t = _hora_a_time(hora)
+    if hora_t is None:
+        return False
+    slot = (
+        db.query(models.CalendarioDisponibilidad)
+        .filter(
+            models.CalendarioDisponibilidad.calendario_id == calendario_id,
+            models.CalendarioDisponibilidad.fecha == fecha,
+            models.CalendarioDisponibilidad.hora == hora_t,
+            models.CalendarioDisponibilidad.disponible == True,
+        )
+        .first()
+    )
+    if slot:
+        slot.disponible = False
+        return True
+    return False
+
+
+def _marcar_slot_libre(db: Session, calendario_id: str, fecha: str, hora: str):
+    """
+    Busca UN slot disponible=False en esa fecha/hora y lo libera.
+    Útil al cancelar o reagendar una cita.
+    """
+    hora_t = _hora_a_time(hora)
+    if hora_t is None:
+        return
+    slot = (
+        db.query(models.CalendarioDisponibilidad)
+        .filter(
+            models.CalendarioDisponibilidad.calendario_id == calendario_id,
+            models.CalendarioDisponibilidad.fecha == fecha,
+            models.CalendarioDisponibilidad.hora == hora_t,
+            models.CalendarioDisponibilidad.disponible == False,
+        )
+        .first()
+    )
+    if slot:
+        slot.disponible = True
+
+# ============================================================
 # AGENDAR CITA
 # ============================================================
 
@@ -33,7 +91,7 @@ def agendar_cita(data: schemas.CitaCreate, db: Session = Depends(get_db)):
     if not servicio:
         raise HTTPException(status_code=404, detail="Servicio no encontrado")
 
-    # Verificar conflicto de horario
+    # Verificar conflicto de horario (mismo cliente, misma hora)
     conflicto = db.query(models.Cita).filter(
         models.Cita.cliente_id == data.cliente_id,
         models.Cita.sede_id == data.sede_id,
@@ -43,6 +101,22 @@ def agendar_cita(data: schemas.CitaCreate, db: Session = Depends(get_db)):
     ).first()
     if conflicto:
         raise HTTPException(status_code=400, detail="Ya tienes una cita en ese horario")
+
+    # Verificar que el slot tenga cupo disponible
+    hora_t = _hora_a_time(data.hora)
+    if hora_t is not None:
+        cupo = (
+            db.query(models.CalendarioDisponibilidad)
+            .filter(
+                models.CalendarioDisponibilidad.calendario_id == data.calendario_id,
+                models.CalendarioDisponibilidad.fecha == data.fecha,
+                models.CalendarioDisponibilidad.hora == hora_t,
+                models.CalendarioDisponibilidad.disponible == True,
+            )
+            .first()
+        )
+        if not cupo:
+            raise HTTPException(status_code=400, detail="No hay cupo disponible para ese horario")
 
     qr_token = data.qr_token or secrets.token_urlsafe(16)
 
@@ -60,6 +134,11 @@ def agendar_cita(data: schemas.CitaCreate, db: Session = Depends(get_db)):
     )
 
     db.add(cita)
+    db.flush()  # obtener el id antes del commit
+
+    # Marcar UN slot como ocupado
+    _marcar_slot_ocupado(db, data.calendario_id, data.fecha, data.hora)
+
     db.commit()
     db.refresh(cita)
 
@@ -257,8 +336,29 @@ def reagendar_cita(cita_id: str, data: schemas.CitaReagendar, db: Session = Depe
     if cita_original.estado not in ["agendada"]:
         raise HTTPException(status_code=400, detail="Solo se pueden reagendar citas en estado 'agendada'")
 
+    # Liberar el slot de la cita original
+    _marcar_slot_libre(db, cita_original.calendario_id, str(cita_original.fecha), str(cita_original.hora)[:5])
+
     # Cancelar la cita original
     cita_original.estado = "cancelada"
+
+    # Verificar disponibilidad en el nuevo horario
+    hora_t = _hora_a_time(data.nueva_hora)
+    if hora_t is not None:
+        cupo = (
+            db.query(models.CalendarioDisponibilidad)
+            .filter(
+                models.CalendarioDisponibilidad.calendario_id == data.calendario_id,
+                models.CalendarioDisponibilidad.fecha == data.nueva_fecha,
+                models.CalendarioDisponibilidad.hora == hora_t,
+                models.CalendarioDisponibilidad.disponible == True,
+            )
+            .first()
+        )
+        if not cupo:
+            # Revertir la liberación del slot original
+            _marcar_slot_ocupado(db, cita_original.calendario_id, str(cita_original.fecha), str(cita_original.hora)[:5])
+            raise HTTPException(status_code=400, detail="No hay cupo disponible para el nuevo horario")
 
     # Crear la nueva cita
     nueva_cita = models.Cita(
@@ -276,6 +376,11 @@ def reagendar_cita(cita_id: str, data: schemas.CitaReagendar, db: Session = Depe
     )
 
     db.add(nueva_cita)
+    db.flush()
+
+    # Marcar el nuevo slot como ocupado
+    _marcar_slot_ocupado(db, data.calendario_id, data.nueva_fecha, data.nueva_hora)
+
     db.commit()
     db.refresh(nueva_cita)
 
@@ -302,6 +407,10 @@ def cancelar_cita(cita_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail=f"No se puede cancelar una cita en estado '{cita.estado}'")
 
     cita.estado = "cancelada"
+
+    # Liberar el slot en disponibilidades
+    _marcar_slot_libre(db, cita.calendario_id, str(cita.fecha), str(cita.hora)[:5])
+
     db.commit()
     db.refresh(cita)
 
