@@ -227,10 +227,13 @@ def generar_disponibilidades(
 
 
 def obtener_disponibilidades_por_fecha(db: Session, calendario_id: str, fecha: date):
+    """
+    Devuelve TODOS los slots del día (disponibles y ocupados) para que el
+    frontend pueda mostrar la capacidad real: disponibles / total.
+    """
     return db.query(CalendarioDisponibilidad).filter(
         CalendarioDisponibilidad.calendario_id == calendario_id,
         CalendarioDisponibilidad.fecha == fecha,
-        CalendarioDisponibilidad.disponible == True
     ).order_by(CalendarioDisponibilidad.hora.asc()).all()
 
 
