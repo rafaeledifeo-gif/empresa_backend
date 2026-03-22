@@ -49,21 +49,55 @@ def on_startup():
         db.commit()
 
         # Sincronizar disponibilidades con citas existentes.
-        # Por cada cita activa (agendada/check_in/en_espera), marcar UN slot como ocupado.
+        # 1) Resetear todos los slots futuros a disponible=True.
+        # 2) Por cada cita activa, marcar exactamente UN slot como ocupado,
+        #    usando ROW_NUMBER para que 2 citas a las 08:00 marquen 2 slots distintos.
         try:
+            # Paso 1: reset
+            db.execute(text(
+                "UPDATE calendario_disponibilidades SET disponible = true "
+                "WHERE fecha >= CURRENT_DATE"
+            ))
+            db.commit()
+
+            # Paso 2: marcar N slots por cada grupo (calendario_id, fecha, hora)
             sync_sql = text("""
-                UPDATE calendario_disponibilidades cd
+                WITH citas_numeradas AS (
+                    SELECT
+                        calendario_id,
+                        fecha::date  AS fecha,
+                        hora::time   AS hora,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY calendario_id, fecha, hora
+                            ORDER BY created_at
+                        ) AS n
+                    FROM citas
+                    WHERE estado IN ('agendada', 'check_in', 'en_espera')
+                      AND fecha::date >= CURRENT_DATE
+                ),
+                slots_numerados AS (
+                    SELECT
+                        id,
+                        calendario_id,
+                        fecha,
+                        hora,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY calendario_id, fecha, hora
+                            ORDER BY id
+                        ) AS n
+                    FROM calendario_disponibilidades
+                    WHERE fecha >= CURRENT_DATE
+                )
+                UPDATE calendario_disponibilidades
                 SET disponible = false
-                WHERE cd.id IN (
-                    SELECT DISTINCT ON (c.calendario_id, c.fecha, c.hora)
-                        cd2.id
-                    FROM citas c
-                    JOIN calendario_disponibilidades cd2
-                        ON cd2.calendario_id = c.calendario_id
-                        AND cd2.fecha = c.fecha::date
-                        AND cd2.hora = c.hora::time
-                        AND cd2.disponible = true
-                    WHERE c.estado IN ('agendada', 'check_in', 'en_espera')
+                WHERE id IN (
+                    SELECT sn.id
+                    FROM citas_numeradas  cn
+                    JOIN slots_numerados  sn
+                        ON  sn.calendario_id = cn.calendario_id
+                        AND sn.fecha         = cn.fecha
+                        AND sn.hora          = cn.hora
+                        AND sn.n             = cn.n
                 )
             """)
             result = db.execute(sync_sql)
@@ -77,6 +111,69 @@ def on_startup():
         print(f"Startup migration error: {e}")
     finally:
         db.close()
+
+# ============================================================
+# ADMIN — resincronizar disponibilidades manualmente
+# ============================================================
+@app.post("/admin/sync-disponibilidades")
+def sync_disponibilidades_manual():
+    """
+    Resetea todos los slots futuros a disponible=True y luego marca
+    exactamente los slots que corresponden a citas activas.
+    Útil para corregir estados inconsistentes sin reiniciar el servidor.
+    """
+    db = SessionLocal()
+    try:
+        db.execute(text(
+            "UPDATE calendario_disponibilidades SET disponible = true "
+            "WHERE fecha >= CURRENT_DATE"
+        ))
+        db.commit()
+
+        result = db.execute(text("""
+            WITH citas_numeradas AS (
+                SELECT
+                    calendario_id,
+                    fecha::date  AS fecha,
+                    hora::time   AS hora,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY calendario_id, fecha, hora
+                        ORDER BY created_at
+                    ) AS n
+                FROM citas
+                WHERE estado IN ('agendada', 'check_in', 'en_espera')
+                  AND fecha::date >= CURRENT_DATE
+            ),
+            slots_numerados AS (
+                SELECT
+                    id, calendario_id, fecha, hora,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY calendario_id, fecha, hora
+                        ORDER BY id
+                    ) AS n
+                FROM calendario_disponibilidades
+                WHERE fecha >= CURRENT_DATE
+            )
+            UPDATE calendario_disponibilidades
+            SET disponible = false
+            WHERE id IN (
+                SELECT sn.id
+                FROM citas_numeradas cn
+                JOIN slots_numerados sn
+                    ON  sn.calendario_id = cn.calendario_id
+                    AND sn.fecha         = cn.fecha
+                    AND sn.hora          = cn.hora
+                    AND sn.n             = cn.n
+            )
+        """))
+        db.commit()
+        return {"status": "ok", "slots_ocupados": result.rowcount}
+    except Exception as e:
+        db.rollback()
+        return {"status": "error", "detail": str(e)}
+    finally:
+        db.close()
+
 
 # ============================================================
 # DEBUG (opcional)
