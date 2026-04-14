@@ -177,18 +177,21 @@ class TicketBase(BaseModel):
 class TicketCreate(TicketBase): 
     pass 
 
-class TicketOut(TicketBase): 
-    id: str 
-    codigo: str 
-    estado: str 
-    hora_creacion: datetime 
-    hora_llamado: Optional[datetime] = None 
-    hora_cierre: Optional[datetime] = None 
+class TicketOut(TicketBase):
+    id: str
+    codigo: str
+    estado: str
+    hora_creacion: datetime
+    hora_llamado: Optional[datetime] = None
+    hora_cierre: Optional[datetime] = None
     servicio_nombre: str
     cliente_id: Optional[str] = None
+    cliente_nombre: Optional[str] = None
     cita_id: Optional[str] = None
     puesto_nombre: Optional[str] = None
-    
+    tipo: Optional[str] = "presencial"
+    sala_video_url: Optional[str] = None
+
     model_config = ConfigDict(from_attributes=True)
 
 # ============================================================
