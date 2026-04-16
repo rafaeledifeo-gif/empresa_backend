@@ -14,6 +14,7 @@ from .routers import (
     calendarios,
     citas,
     jaas,
+    encuesta,
 )
 from app.database import SessionLocal
 from sqlalchemy import text
@@ -40,6 +41,20 @@ def on_startup():
             )""",
             """CREATE UNIQUE INDEX IF NOT EXISTS uix_cal_dia_esp
                ON calendario_dias_especiales(calendario_id, fecha)""",
+            # Tabla encuestas de satisfacción
+            """CREATE TABLE IF NOT EXISTS encuesta_respuestas (
+                id          VARCHAR PRIMARY KEY,
+                ticket_id   VARCHAR REFERENCES tickets(id),
+                servicio_id VARCHAR REFERENCES servicios(id),
+                sede_id     VARCHAR REFERENCES sedes(id),
+                cliente_id  VARCHAR,
+                tipo        VARCHAR,
+                p1_atencion INTEGER,
+                p2_video    INTEGER,
+                p3_general  INTEGER,
+                comentario  VARCHAR,
+                created_at  TIMESTAMP DEFAULT NOW()
+            )""",
         ]
         for sql in migrations:
             try:
@@ -214,6 +229,7 @@ app.include_router(calendarios.router)
 app.include_router(citas.router)
 app.include_router(reportes.router)
 app.include_router(jaas.router)
+app.include_router(encuesta.router)
 
 # ============================================================
 # ROOT
