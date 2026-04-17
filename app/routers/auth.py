@@ -44,7 +44,7 @@ class UsuarioLoginOut(BaseModel):
 @router.post("/login", response_model=UsuarioLoginOut)
 def login(data: LoginRequest, db: Session = Depends(get_db)):
     row = db.execute(
-        text("SELECT * FROM usuarios WHERE username = :u AND activo = true"),
+        text("SELECT * FROM usuarios WHERE LOWER(username) = LOWER(:u) AND activo = true"),
         {"u": data.username}
     ).mappings().fetchone()
 
