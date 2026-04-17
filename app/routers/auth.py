@@ -130,23 +130,26 @@ class ContratoIn(BaseModel):
 @router.post("/contrato", status_code=201)
 def crear_contrato(data: ContratoIn, db: Session = Depends(get_db)):
     import json
-    # Desactivar contratos anteriores
-    db.execute(text(
-        "UPDATE contratos SET activo = false WHERE empresa_id = :eid"
-    ), {"eid": data.empresa_id})
-    db.execute(text("""
-        INSERT INTO contratos (id, empresa_id, fecha_inicio, fecha_fin, max_sedes, modulos, activo)
-        VALUES (:id, :eid, :fi, :ff, :ms, :mod::jsonb, true)
-    """), {
-        "id": str(uuid.uuid4()),
-        "eid": data.empresa_id,
-        "fi": data.fecha_inicio,
-        "ff": data.fecha_fin,
-        "ms": data.max_sedes,
-        "mod": json.dumps(data.modulos),
-    })
-    db.commit()
-    return {"status": "ok"}
+    try:
+        db.execute(text(
+            "UPDATE contratos SET activo = false WHERE empresa_id = :eid"
+        ), {"eid": data.empresa_id})
+        db.execute(text("""
+            INSERT INTO contratos (id, empresa_id, fecha_inicio, fecha_fin, max_sedes, modulos, activo)
+            VALUES (:id, :eid, :fi, :ff, :ms, CAST(:mod AS JSONB), true)
+        """), {
+            "id": str(uuid.uuid4()),
+            "eid": data.empresa_id,
+            "fi": data.fecha_inicio,
+            "ff": data.fecha_fin,
+            "ms": data.max_sedes,
+            "mod": json.dumps(data.modulos),
+        })
+        db.commit()
+        return {"status": "ok"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al guardar contrato: {str(e)}")
 
 
 # ── PUT /auth/usuario/{id}/permisos ─────────────────────────
@@ -177,6 +180,10 @@ def actualizar_permisos(usuario_id: str, data: PermisosIn, db: Session = Depends
         sets.append("email = :email"); params["email"] = data.email
     if not sets:
         return {"status": "no changes"}
-    db.execute(text(f"UPDATE usuarios SET {', '.join(sets)} WHERE id = :id"), params)
-    db.commit()
-    return {"status": "ok"}
+    try:
+        db.execute(text(f"UPDATE usuarios SET {', '.join(sets)} WHERE id = :id"), params)
+        db.commit()
+        return {"status": "ok"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al actualizar permisos: {str(e)}")
