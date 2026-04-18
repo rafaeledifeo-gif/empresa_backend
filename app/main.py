@@ -16,6 +16,7 @@ from .routers import (
     jaas,
     encuesta,
     auth,
+    stats,
 )
 from app.database import SessionLocal
 from sqlalchemy import text
@@ -59,6 +60,14 @@ def on_startup():
                 modulos      JSONB DEFAULT '{}',
                 activo       BOOLEAN DEFAULT true,
                 created_at   TIMESTAMP DEFAULT NOW()
+            )""",
+            # Tabla contadores de uso de apps por sede
+            """CREATE TABLE IF NOT EXISTS app_stats (
+                sede_id    VARCHAR NOT NULL,
+                app_type   VARCHAR NOT NULL,
+                contador   INTEGER DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT NOW(),
+                PRIMARY KEY (sede_id, app_type)
             )""",
             # Tabla encuestas de satisfacción
             """CREATE TABLE IF NOT EXISTS encuesta_respuestas (
@@ -271,6 +280,7 @@ app.include_router(reportes.router)
 app.include_router(jaas.router)
 app.include_router(encuesta.router)
 app.include_router(auth.router)
+app.include_router(stats.router)
 
 # ============================================================
 # ROOT
