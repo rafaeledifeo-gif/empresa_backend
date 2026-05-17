@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Boolean, Date, Time
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Boolean, Date, Time, Text
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from .database import Base
@@ -262,3 +262,35 @@ class MetaServicioSede(Base):
 
     sede = relationship('Sede')
     servicio = relationship('Servicio')
+
+
+# ============================================================
+# MEDIA SERVICE
+# ============================================================
+
+class MediaContenido(Base):
+    __tablename__ = "media_contenido"
+
+    id          = Column(String, primary_key=True, index=True)
+    nombre      = Column(String, nullable=False)
+    tipo        = Column(String, default="image")        # image | video
+    empresa_id  = Column(String, ForeignKey("empresas.id"), nullable=True)
+    sede_id     = Column(String, ForeignKey("sedes.id"), nullable=True)
+    archivo_url = Column(String, nullable=False)
+    orden       = Column(Integer, default=0)
+    activo      = Column(Boolean, default=True)
+    created_at  = Column(DateTime, server_default=func.now())
+
+
+class MediaPantalla(Base):
+    __tablename__ = "media_pantallas"
+
+    id                  = Column(String, primary_key=True, index=True)
+    nombre              = Column(String, nullable=False)
+    sede_id             = Column(String, ForeignKey("sedes.id"), nullable=True)
+    empresa_id          = Column(String, ForeignKey("empresas.id"), nullable=True)
+    token               = Column(String, unique=True, index=True)
+    intervalo_segundos  = Column(Integer, default=8)
+    activo              = Column(Boolean, default=True)
+    ultima_conexion     = Column(DateTime, nullable=True)
+    created_at          = Column(DateTime, server_default=func.now())

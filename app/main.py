@@ -17,6 +17,7 @@ from .routers import (
     encuesta,
     auth,
     stats,
+    media,
 )
 from app.database import SessionLocal
 from sqlalchemy import text
@@ -82,6 +83,29 @@ def on_startup():
                 p3_general  INTEGER,
                 comentario  VARCHAR,
                 created_at  TIMESTAMP DEFAULT NOW()
+            )""",
+            # ── Media Service ───────────────────────────────────────
+            """CREATE TABLE IF NOT EXISTS media_contenido (
+                id          VARCHAR PRIMARY KEY,
+                nombre      VARCHAR NOT NULL,
+                tipo        VARCHAR DEFAULT 'image',
+                empresa_id  VARCHAR REFERENCES empresas(id),
+                sede_id     VARCHAR REFERENCES sedes(id),
+                archivo_url VARCHAR NOT NULL,
+                orden       INTEGER DEFAULT 0,
+                activo      BOOLEAN DEFAULT true,
+                created_at  TIMESTAMP DEFAULT NOW()
+            )""",
+            """CREATE TABLE IF NOT EXISTS media_pantallas (
+                id                  VARCHAR PRIMARY KEY,
+                nombre              VARCHAR NOT NULL,
+                sede_id             VARCHAR REFERENCES sedes(id),
+                empresa_id          VARCHAR REFERENCES empresas(id),
+                token               VARCHAR UNIQUE,
+                intervalo_segundos  INTEGER DEFAULT 8,
+                activo              BOOLEAN DEFAULT true,
+                ultima_conexion     TIMESTAMP,
+                created_at          TIMESTAMP DEFAULT NOW()
             )""",
         ]
         for sql in migrations:
@@ -281,6 +305,7 @@ app.include_router(jaas.router)
 app.include_router(encuesta.router)
 app.include_router(auth.router)
 app.include_router(stats.router)
+app.include_router(media.router)
 
 # ============================================================
 # ROOT
